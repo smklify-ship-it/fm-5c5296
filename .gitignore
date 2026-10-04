@@ -1,0 +1,9 @@
+pipeline/cache/
+pipeline/.venv/
+web/node_modules/
+web/dist/
+web/dev-dist/
+**/__pycache__/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/

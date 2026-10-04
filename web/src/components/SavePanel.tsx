@@ -1,0 +1,168 @@
+import { useEffect, useRef, useState } from 'react';
+import {
+  BASE_MAX_ZOOM,
+  downloadBaseArea,
+  estimateArea,
+  MAX_TILES_PER_AREA,
+  type DownloadProgress,
+} from '../lib/basemap';
+import { dbAll, dbClear, dbPut, STORES } from '../lib/db';
+import type { BBox, PrefEntry, SavedArea } from '../lib/types';
+
+const ZOOM_CHOICES = [14, 15, 16];
+const MB = 1e6;
+
+interface Props {
+  prefs: PrefEntry[];
+  stored: Set<string>;
+  busyPref: { key: string; received: number; total: number } | null;
+  onStorePref: (p: PrefEntry) => void;
+  onRemovePref: (p: PrefEntry) => void;
+  viewBbox: BBox | null;
+}
+
+function mb(bytes: number): string {
+  return `${(bytes / MB).toFixed(1)} MB`;
+}
+
+export function SavePanel({ prefs, stored, busyPref, onStorePref, onRemovePref, viewBbox }: Props) {
+  const [maxZoom, setMaxZoom] = useState(BASE_MAX_ZOOM);
+  const [areas, setAreas] = useState<SavedArea[]>([]);
+  const [progress, setProgress] = useState<DownloadProgress | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<string>('');
+  const abortRef = useRef<AbortController | null>(null);
+
+  const refreshAreas = async () => {
+    const [list, est] = await Promise.all([
+      dbAll<SavedArea>(STORES.areas),
+      navigator.storage?.estimate?.() ?? Promise.resolve(undefined),
+    ]);
+    setAreas(list);
+    if (est) setUsage(`端末内の使用量 ${mb(est.usage ?? 0)}`);
+  };
+  useEffect(() => {
+    let alive = true;
+    Promise.all([dbAll<SavedArea>(STORES.areas), navigator.storage?.estimate?.()])
+      .then(([list, est]) => {
+        if (!alive) return;
+        setAreas(list);
+        if (est) setUsage(`端末内の使用量 ${mb(est.usage ?? 0)}`);
+      })
+      .catch((e: unknown) => alive && setError(String(e)));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const estimate = viewBbox ? estimateArea(viewBbox, maxZoom) : null;
+  const tooBig = estimate !== null && estimate.tiles > MAX_TILES_PER_AREA;
+
+  const startDownload = async () => {
+    if (!viewBbox) return;
+    setError(null);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    try {
+      // Ask the browser not to evict offline data under storage pressure.
+      await navigator.storage?.persist?.();
+      const result = await downloadBaseArea(viewBbox, maxZoom, setProgress, ctrl.signal);
+      const area: SavedArea = {
+        id: crypto.randomUUID(),
+        bbox: viewBbox,
+        maxZoom,
+        tiles: result.total,
+        bytes: result.bytes,
+        savedAt: new Date().toISOString(),
+      };
+      await dbPut(STORES.areas, area.id, area);
+      await refreshAreas();
+    } catch (e) {
+      setError(e instanceof DOMException && e.name === 'AbortError' ? '中止しました' : String(e));
+    } finally {
+      setProgress(null);
+      abortRef.current = null;
+    }
+  };
+
+  const clearAreas = async () => {
+    if (!confirm('保存した背景地図をすべて削除しますか？（植生データは残ります）')) return;
+    await dbClear(STORES.tiles);
+    await dbClear(STORES.areas);
+    await refreshAreas();
+  };
+
+  return (
+    <div className="panel">
+      <h3>① 県の植生データ</h3>
+      <p className="hint">表示する県を端末に保存します（一度だけ。圏外でも使えます）。</p>
+      <ul className="prefs">
+        {prefs.map((p) => {
+          const isStored = stored.has(p.key);
+          const busy = busyPref?.key === p.key;
+          return (
+            <li key={p.key}>
+              <span>
+                {p.name}（{mb(p.vegBytes + p.kokuyuBytes)}・{p.built}）
+              </span>
+              {busy ? (
+                <span>
+                  保存中 {Math.floor(((busyPref?.received ?? 0) / (busyPref?.total || 1)) * 100)}%
+                </span>
+              ) : isStored ? (
+                <button onClick={() => onRemovePref(p)}>削除</button>
+              ) : (
+                <button className="primary" onClick={() => onStorePref(p)} disabled={busyPref !== null}>
+                  保存
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+
+      <h3>② 背景地図（等高線）をオフライン用に保存</h3>
+      <p className="hint">このパネルの上に見えている地図の範囲を保存します。出発前に、行く山がその範囲に入るよう地図を動かしてから押してください。</p>
+      <label className="row">
+        細かさ
+        <select value={maxZoom} onChange={(e) => setMaxZoom(Number(e.target.value))}>
+          {ZOOM_CHOICES.map((z) => (
+            <option key={z} value={z}>
+              {z === BASE_MAX_ZOOM ? `${z}（最も詳しい）` : z}
+            </option>
+          ))}
+        </select>
+      </label>
+      {estimate && (
+        <p className={tooBig ? 'warn' : 'hint'}>
+          約 {estimate.tiles} 枚・最大 {mb(estimate.bytes)} の見込み
+          {tooBig && `。範囲が広すぎます（上限 ${MAX_TILES_PER_AREA} 枚）。拡大するか細かさを下げてください`}
+        </p>
+      )}
+      {progress ? (
+        <div>
+          <progress value={progress.done} max={progress.total} /> {progress.done}/{progress.total}
+          <button onClick={() => abortRef.current?.abort()}>中止</button>
+        </div>
+      ) : (
+        <button className="primary" disabled={!viewBbox || tooBig} onClick={startDownload}>
+          この範囲を保存
+        </button>
+      )}
+      {error && <p className="warn">{error}</p>}
+      {areas.length > 0 && (
+        <>
+          <ul className="areas">
+            {areas.map((a) => (
+              <li key={a.id}>
+                {a.savedAt.slice(0, 10)}・{a.tiles}枚・{mb(a.bytes)}（細かさ{a.maxZoom}）
+              </li>
+            ))}
+          </ul>
+          <button onClick={clearAreas}>保存した背景地図をすべて削除</button>
+        </>
+      )}
+      <p className="hint">{usage}</p>
+    </div>
+  );
+}

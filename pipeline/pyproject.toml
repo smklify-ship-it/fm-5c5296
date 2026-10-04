@@ -1,0 +1,34 @@
+[project]
+name = "veg-map-pipeline"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "geopandas>=1.2.0",
+    "numpy>=2.5.3",
+    "pillow>=12.3.0",
+    "pyogrio>=0.13.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.mypy]
+strict = true
+packages = ["vegmap", "tests"]
+# geopandas / shapely / pyogrio ship no complete type stubs.
+ignore_missing_imports = true
+disallow_untyped_calls = false
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]

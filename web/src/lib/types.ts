@@ -1,0 +1,52 @@
+/** [west, south, east, north] in degrees. */
+export type BBox = [number, number, number, number];
+
+/** One vegetation legend (凡例) as written by pipeline/vegmap/build.py. */
+export interface Legend {
+  c: number; // 凡例コード
+  n: string; // 凡例名
+  k: string; // 植生区分
+  count: number;
+  lo: number | null; // lowest elevation (m) of any polygon with this legend
+  hi: number | null;
+}
+
+export interface PrefEntry {
+  key: string;
+  name: string;
+  bbox: BBox;
+  veg: string;
+  vegBytes: number;
+  kokuyu: string;
+  kokuyuBytes: number;
+  built: string;
+  legends: Legend[];
+}
+
+export interface PrefIndex {
+  version: number;
+  prefs: PrefEntry[];
+}
+
+export interface Memo {
+  id: string;
+  lat: number;
+  lon: number;
+  time: string; // ISO 8601
+  text: string;
+}
+
+export interface ElevationRange {
+  enabled: boolean;
+  min: number;
+  max: number;
+}
+
+export interface SavedArea {
+  id: string;
+  bbox: BBox;
+  maxZoom: number;
+  tiles: number;
+  bytes: number;
+  savedAt: string;
+}
