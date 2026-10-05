@@ -1,4 +1,5 @@
 import type { ExpressionSpecification, FilterSpecification } from 'maplibre-gl';
+import { PATTERN_PREFIX } from './patterns';
 import type { ElevationMode, ElevationRange } from './types';
 
 // Colour-blind-friendly first, then high-contrast extras; all readable over the GSI base map.
@@ -150,4 +151,47 @@ export function withOwner(
 ): FilterSpecification {
   const owner = ownerFilter(key, attachedKeys);
   return filter ? ['all', owner, filter as ExpressionSpecification] : owner;
+}
+
+/** Minimal shape of a drawing entry (see DrawEntry in groups.ts). */
+export interface EntryLike {
+  key: string;
+  color: string;
+  codes: number[];
+  band?: [number, number];
+}
+
+/** Does a polygon belong to `entry`: its legend is a member, and its band overlaps (if any). */
+export function entryMatch(entry: EntryLike, elev: ElevationRange): ExpressionSpecification {
+  const inCodes: ExpressionSpecification = ['in', ['get', 'c'], ['literal', entry.codes]];
+  const band = entry.band ?? (elev.enabled ? ([elev.min, elev.max] as [number, number]) : null);
+  return band ? ['all', inCodes, ...bandOverlap(band[0], band[1])] : inCodes;
+}
+
+/** Show a polygon when it matches at least one entry; null = nothing to show. */
+export function entriesFilter(entries: EntryLike[], elev: ElevationRange): FilterSpecification | null {
+  if (entries.length === 0) return null;
+  const matches = entries.map((e) => entryMatch(e, elev));
+  return matches.length === 1 ? matches[0] : ['any', ...matches];
+}
+
+/**
+ * Per-polygon fill pattern id "vm|key#colour|key#colour…" listing every entry the polygon
+ * matches (one = solid, several = stripes; images come from patterns.ts on demand).
+ */
+export function entriesPattern(entries: EntryLike[], elev: ElevationRange): ExpressionSpecification {
+  const parts: ExpressionSpecification[] = entries.map((e) => [
+    'case',
+    entryMatch(e, elev),
+    `|${e.key}${e.color.toLowerCase()}`,
+    '',
+  ]);
+  return ['image', ['concat', PATTERN_PREFIX, ...parts]] as unknown as ExpressionSpecification;
+}
+
+/** Outline colour: the first matching entry's colour. */
+export function entriesLineColor(entries: EntryLike[], elev: ElevationRange): ExpressionSpecification | string {
+  if (entries.length === 0) return UNSELECTED_COLOR;
+  const cases = entries.flatMap((e) => [entryMatch(e, elev), e.color]);
+  return ['case', ...cases, UNSELECTED_COLOR] as unknown as ExpressionSpecification;
 }

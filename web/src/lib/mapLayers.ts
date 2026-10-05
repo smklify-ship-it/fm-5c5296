@@ -1,6 +1,13 @@
 import type { Map as MlMap } from 'maplibre-gl';
 import { DEM_SOURCE } from './basemap';
-import { elevationBandColor, vegColor, vegFilter, withOwner, type Selection } from './style';
+import {
+  elevationBandColor,
+  entriesFilter,
+  entriesLineColor,
+  entriesPattern,
+  withOwner,
+  type EntryLike,
+} from './style';
 import type { ElevationRange } from './types';
 
 // Layer names inside the PMTiles, set by pipeline/vegmap/build.py (write_pmtiles layer=...).
@@ -118,23 +125,24 @@ export function removePrefLayers(map: MlMap, key: string): void {
 export function applyVegStyle(
   map: MlMap,
   key: string,
-  selected: Selection[],
+  entries: EntryLike[],
   elev: ElevationRange,
   attachedKeys: string[],
 ): void {
   const id = ids(key);
   if (!map.getLayer(id.vegFill)) return;
-  const filter = vegFilter(selected, elev);
+  const filter = entriesFilter(entries, elev);
   const visibility = filter ? 'visible' : 'none';
-  const color = vegColor(selected);
   // The tap layer follows the ownership rule too, so a border polygon is reported once.
   map.setFilter(id.vegHit, withOwner(null, key, attachedKeys));
   for (const layer of [id.vegFill, id.vegLine]) {
     map.setLayoutProperty(layer, 'visibility', visibility);
     if (filter) map.setFilter(layer, withOwner(filter, key, attachedKeys));
   }
-  map.setPaintProperty(id.vegFill, 'fill-color', color);
-  map.setPaintProperty(id.vegLine, 'line-color', color);
+  if (!filter) return;
+  // Solid colour for one matching group, stripes for several (images from patterns.ts).
+  map.setPaintProperty(id.vegFill, 'fill-pattern', entriesPattern(entries, elev));
+  map.setPaintProperty(id.vegLine, 'line-color', entriesLineColor(entries, elev));
 }
 
 export function applyKokuyuVisibility(map: MlMap, key: string, visible: boolean): void {

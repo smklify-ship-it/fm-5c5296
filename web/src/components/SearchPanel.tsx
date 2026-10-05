@@ -28,49 +28,31 @@ function legendMeta(l: Legend | undefined): string {
   return l ? `${l.k}・${l.count}区画 ${elevText(l)}` : '';
 }
 
-/** "Move to" dropdown shared by member and individual rows. */
-function MoveSelect({ sel, s, onChange }: { sel: G.SelectionState; s: Selection; onChange: Update }) {
-  if (sel.groups.length === 0) return null;
-  return (
-    <select
-      className="move"
-      title="グループへ移す"
-      value={s.group ?? INDIVIDUAL}
-      onChange={(e) => onChange((cur) => G.assign(cur, s.code, e.target.value || null))}
-    >
-      <option value={INDIVIDUAL}>個別</option>
-      {sel.groups.map((g) => (
-        <option key={g.id} value={g.id}>
-          {g.name}
-        </option>
-      ))}
-    </select>
-  );
-}
-
 interface RowProps {
-  sel: G.SelectionState;
   s: Selection;
   legend: Legend | undefined;
   color: string;
   onChange: Update;
 }
 
-function SelectionRow({ sel, s, legend, color, onChange }: RowProps) {
+function SelectionRow({ s, legend, color, onChange }: RowProps) {
   return (
     <li className={s.hidden ? 'is-hidden' : ''}>
       <label>
         <input
           type="checkbox"
           checked={!s.hidden}
-          onChange={(e) => onChange((cur) => G.setHidden(cur, s.code, !e.target.checked))}
+          onChange={(e) => onChange((cur) => G.setHidden(cur, s.code, s.group, !e.target.checked))}
         />
         <span className="swatch" style={{ background: color }} />
         <span className="name">{legend?.n ?? s.code}</span>
         <span className="meta">{legendMeta(legend)}</span>
       </label>
-      <MoveSelect sel={sel} s={s} onChange={onChange} />
-      <button className="remove" title="選択から外す" onClick={() => onChange((cur) => G.remove(cur, s.code))}>
+      <button
+        className="remove"
+        title={s.group ? 'このグループから外す' : '選択から外す'}
+        onClick={() => onChange((cur) => G.remove(cur, s.code, s.group))}
+      >
         ×
       </button>
     </li>
@@ -246,7 +228,7 @@ function GroupBlock({ sel, group, byCode, editing, onEdit, onChange, focused, on
         <ul className="results members">
           {members.length === 0 && <li className="hint">空です。検索して「追加先」にこのグループを選んで追加してください。</li>}
           {members.map((s) => (
-            <SelectionRow key={s.code} sel={sel} s={s} legend={byCode.get(s.code)} color={group.color} onChange={onChange} />
+            <SelectionRow key={s.code} s={s} legend={byCode.get(s.code)} color={group.color} onChange={onChange} />
           ))}
         </ul>
       )}
@@ -269,7 +251,6 @@ export function SearchPanel({
   const [editing, setEditing] = useState<string | null>(null);
   const results = useMemo(() => searchLegends(legends, query), [legends, query]);
   const byCode = useMemo(() => new Map(legends.map((l) => [l.c, l])), [legends]);
-  const resolved = useMemo(() => new Map(G.resolveForMap(sel).map((s) => [s.code, s])), [sel]);
   const groupName = useMemo(() => new Map(sel.groups.map((g) => [g.id, g.name])), [sel.groups]);
   // A deleted group cannot stay the add target.
   const effectiveTarget = target !== null && groupName.has(target) ? target : null;
@@ -330,22 +311,29 @@ export function SearchPanel({
           )}
           <ul className="results">
             {shown.map((l) => {
-              const r = resolved.get(l.c);
-              const g = sel.selected.find((s) => s.code === l.c)?.group;
+              // The checkbox reflects membership in the chosen 追加先 only.
+              const entry = sel.selected.find(
+                (s) => s.code === l.c && (s.group ?? null) === effectiveTarget,
+              );
+              const swatch = entry ? G.entryColor(sel, entry) : 'transparent';
+              const where = [
+                ...(sel.selected.some((s) => s.code === l.c && !s.group) ? ['個別'] : []),
+                ...G.groupNamesOf(sel, l.c),
+              ];
               return (
                 <li key={l.c}>
                   <label>
                     <input
                       type="checkbox"
-                      checked={r !== undefined}
+                      checked={entry !== undefined}
                       onChange={() => onChange((cur) => G.toggle(cur, l.c, effectiveTarget))}
                     />
-                    <span className="swatch" style={{ background: r?.color ?? 'transparent' }} />
+                    <span className="swatch" style={{ background: swatch }} />
                     <span className="name">{l.n}</span>
                     <span className="meta">
                       {legendMeta(l)}
-                      {g ? `・${groupName.get(g)}` : ''}
-                      {r?.hidden ? '・非表示中' : ''}
+                      {where.length > 0 ? `・${where.join('・')}` : ''}
+                      {entry?.hidden ? '・非表示中' : ''}
                     </span>
                   </label>
                 </li>
@@ -395,7 +383,7 @@ export function SearchPanel({
               {sel.groups.length > 0 && <div className="result-head">個別</div>}
               <ul className="results">
                 {G.individuals(sel).map((s) => (
-                  <SelectionRow key={s.code} sel={sel} s={s} legend={byCode.get(s.code)} color={s.color} onChange={onChange} />
+                  <SelectionRow key={s.code} s={s} legend={byCode.get(s.code)} color={s.color} onChange={onChange} />
                 ))}
               </ul>
             </>

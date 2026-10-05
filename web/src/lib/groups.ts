@@ -2,8 +2,9 @@
  * Colour groups for selected legends. Pure state transitions (no React, no storage) so the
  * rules are unit tested; App.tsx holds the state and persists it.
  *
- * Rules: a legend is selected at most once, either on its own (own colour) or as a member of
- * exactly one group (painted with the group colour). Hiding a group hides all its members.
+ * Rules: one entry per (legend, group). A legend may be selected once on its own (own colour)
+ * and, independently, in any number of groups (painted with each group's colour; polygons that
+ * match several entries are drawn striped). Hiding a group hides all its members.
  * A group may carry mushroom conditions: its own elevation band and fruiting months.
  */
 import { nextFreeColor, type Selection } from './style';
@@ -20,7 +21,7 @@ export interface Group {
   months?: number[];
 }
 
-/** Display options that change what resolveForMap returns. */
+/** Display options that change what drawEntries returns. */
 export interface ViewOptions {
   seasonOnly: boolean;
   month: number; // 1–12, the current month
@@ -53,43 +54,57 @@ function groupExists(state: SelectionState, target: Target): target is string {
   return target !== null && state.groups.some((g) => g.id === target);
 }
 
-/** Drop dangling group references (e.g. edited storage) so members never vanish silently. */
+function sameEntry(s: Selection, code: number, group: string | undefined): boolean {
+  return s.code === code && (s.group ?? undefined) === group;
+}
+
+/**
+ * Keep stored state consistent: entries of a deleted group become individual selections, and
+ * duplicate (legend, group) entries (e.g. hand-edited storage) collapse to one.
+ */
 export function normalize(state: SelectionState): SelectionState {
   const ids = new Set(state.groups.map((g) => g.id));
-  return {
-    groups: state.groups,
-    selected: state.selected.map((s) => (s.group && !ids.has(s.group) ? { ...s, group: undefined } : s)),
-  };
+  const seen = new Set<string>();
+  const selected: Selection[] = [];
+  for (const s of state.selected) {
+    const fixed = s.group && !ids.has(s.group) ? { ...s, group: undefined } : s;
+    const key = `${fixed.code}|${fixed.group ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selected.push(fixed);
+  }
+  return { groups: state.groups, selected };
 }
 
-/** Put `code` under `target`, adding it if needed. Leaving a group gives it a fresh own colour. */
+export function hasEntry(state: SelectionState, code: number, target: Target): boolean {
+  const group = groupExists(state, target) ? target : undefined;
+  return state.selected.some((s) => sameEntry(s, code, group));
+}
+
+/** Add `code` to `target` (a group, or individual when null). Other entries are untouched. */
 export function assign(state: SelectionState, code: number, target: Target): SelectionState {
   const group = groupExists(state, target) ? target : undefined;
-  const existing = state.selected.find((s) => s.code === code);
-  if (!existing) {
-    const color = group ? (state.groups.find((g) => g.id === group)?.color ?? freeColor(state)) : freeColor(state);
-    return { ...state, selected: [...state.selected, { code, color, group }] };
-  }
-  if (existing.group === group) return state;
-  const color = group || !existing.group ? existing.color : freeColor(state);
-  return {
-    ...state,
-    selected: state.selected.map((s) => (s.code === code ? { ...s, group, color } : s)),
-  };
+  if (state.selected.some((s) => sameEntry(s, code, group))) return state;
+  const color = group
+    ? (state.groups.find((g) => g.id === group)?.color ?? freeColor(state))
+    : freeColor(state);
+  return { ...state, selected: [...state.selected, { code, color, group }] };
 }
 
-/** Checkbox semantics in search results: selected → remove, otherwise add under `target`. */
+/** Checkbox semantics in search results: in `target` → remove from it, otherwise add to it. */
 export function toggle(state: SelectionState, code: number, target: Target): SelectionState {
-  return state.selected.some((s) => s.code === code) ? remove(state, code) : assign(state, code, target);
+  const group = groupExists(state, target) ? target : undefined;
+  return hasEntry(state, code, target) ? remove(state, code, group) : assign(state, code, target);
 }
 
-/** "Select all results": add missing ones and move already-selected ones under `target`. */
+/** "Add all results": add every legend to `target` (already-present ones are kept as is). */
 export function assignMany(state: SelectionState, codes: number[], target: Target): SelectionState {
   return codes.reduce((acc, code) => assign(acc, code, target), state);
 }
 
-export function remove(state: SelectionState, code: number): SelectionState {
-  return { ...state, selected: state.selected.filter((s) => s.code !== code) };
+/** Remove one entry: `group` undefined = the individual selection of `code`. */
+export function remove(state: SelectionState, code: number, group?: string): SelectionState {
+  return { ...state, selected: state.selected.filter((s) => !sameEntry(s, code, group)) };
 }
 
 export function createGroup(
@@ -117,7 +132,7 @@ export function updateGroup(
   return { ...state, groups: state.groups.map((g) => (g.id === id ? { ...g, ...patch } : g)) };
 }
 
-/** Deletes the group together with its members (the UI confirms first). */
+/** Deletes the group together with its member entries (the UI confirms first). */
 export function deleteGroup(state: SelectionState, id: string): SelectionState {
   return {
     groups: state.groups.filter((g) => g.id !== id),
@@ -125,8 +140,16 @@ export function deleteGroup(state: SelectionState, id: string): SelectionState {
   };
 }
 
-export function setHidden(state: SelectionState, code: number, hidden: boolean): SelectionState {
-  return { ...state, selected: state.selected.map((s) => (s.code === code ? { ...s, hidden } : s)) };
+export function setHidden(
+  state: SelectionState,
+  code: number,
+  group: string | undefined,
+  hidden: boolean,
+): SelectionState {
+  return {
+    ...state,
+    selected: state.selected.map((s) => (sameEntry(s, code, group) ? { ...s, hidden } : s)),
+  };
 }
 
 /** Show/hide everything, groups included, so "すべて表示" really shows everything. */
@@ -147,21 +170,36 @@ export function groupOff(group: Group, view?: ViewOptions): boolean {
   return Boolean(group.hidden || (view?.seasonOnly && !inSeason(group, view.month)));
 }
 
+/** One colour layer on the map: a visible group, or one individual legend. */
+export interface DrawEntry {
+  key: string; // stable id: the group id, or "i<code>" for an individual legend
+  color: string;
+  codes: number[];
+  band?: [number, number]; // own band; undefined = the global elevation filter
+}
+
 /**
- * What the map draws: members take their group's colour and band, and are hidden with the
- * group (or when the group is out of season and "今が旬だけ表示" is on).
+ * What the map draws, in list order (groups first). Hidden members, hidden groups, empty
+ * groups and out-of-season groups (when "今が旬だけ表示" is on) are left out.
  */
-export function resolveForMap(state: SelectionState, view?: ViewOptions): Selection[] {
-  const byId = new Map(state.groups.map((g) => [g.id, g]));
-  return state.selected.map((s) => {
-    const g = s.group ? byId.get(s.group) : undefined;
-    return {
-      code: s.code,
-      color: g?.color ?? s.color,
-      hidden: Boolean(s.hidden || (g && groupOff(g, view))),
-      band: g?.elev,
-    };
-  });
+export function drawEntries(state: SelectionState, view?: ViewOptions): DrawEntry[] {
+  const entries: DrawEntry[] = [];
+  for (const g of state.groups) {
+    if (groupOff(g, view)) continue;
+    const codes = state.selected.filter((s) => s.group === g.id && !s.hidden).map((s) => s.code);
+    if (codes.length > 0) entries.push({ key: g.id, color: g.color, codes, band: g.elev });
+  }
+  for (const s of state.selected) {
+    if (!s.group && !s.hidden) entries.push({ key: `i${s.code}`, color: s.color, codes: [s.code] });
+  }
+  return entries;
+}
+
+/** Legends drawn by two or more entries (striped where their conditions overlap). */
+export function sharedCodes(entries: DrawEntry[]): Set<number> {
+  const count = new Map<number, number>();
+  for (const e of entries) for (const c of e.codes) count.set(c, (count.get(c) ?? 0) + 1);
+  return new Set([...count].filter(([, n]) => n > 1).map(([c]) => c));
 }
 
 /** Normalise a user-entered band: both ends required, swapped if reversed, 0–4000 m. */
@@ -172,7 +210,7 @@ export function makeBand(min: number | null, max: number | null): [number, numbe
   return a <= b ? [a, b] : [b, a];
 }
 
-/** Groups (visible, in season) whose legends include `code` and whose band overlaps the polygon. */
+/** Groups (visible, in season) containing `code` whose band overlaps the polygon's range. */
 export function groupsMatching(
   state: SelectionState,
   code: number,
@@ -180,10 +218,11 @@ export function groupsMatching(
   hi: number | null,
   view?: ViewOptions,
 ): Group[] {
-  const member = state.selected.find((s) => s.code === code && s.group && !s.hidden);
-  if (!member) return [];
+  const memberOf = new Set(
+    state.selected.filter((s) => s.code === code && s.group && !s.hidden).map((s) => s.group),
+  );
   return state.groups.filter((g) => {
-    if (g.id !== member.group || groupOff(g, view)) return false;
+    if (!memberOf.has(g.id) || groupOff(g, view)) return false;
     if (!g.elev || lo === null || hi === null) return true;
     return hi >= g.elev[0] && lo <= g.elev[1];
   });
@@ -205,4 +244,15 @@ export function membersOf(state: SelectionState, id: string): Selection[] {
 
 export function individuals(state: SelectionState): Selection[] {
   return state.selected.filter((s) => !s.group);
+}
+
+/** Names of the groups a legend belongs to (for search results). */
+export function groupNamesOf(state: SelectionState, code: number): string[] {
+  const ids = new Set(state.selected.filter((s) => s.code === code && s.group).map((s) => s.group));
+  return state.groups.filter((g) => ids.has(g.id)).map((g) => g.name);
+}
+
+/** Colour shown for an entry in lists: the group's colour for members, else its own. */
+export function entryColor(state: SelectionState, s: Selection): string {
+  return (s.group && state.groups.find((g) => g.id === s.group)?.color) || s.color;
 }

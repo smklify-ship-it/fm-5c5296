@@ -11,12 +11,15 @@ import {
   makeBand,
   normalize,
   renameGroup,
-  resolveForMap,
+  drawEntries,
+  groupNamesOf,
+  sharedCodes,
   setAllHidden,
   setHidden,
   toggle,
   updateGroup,
   usedColors,
+  hasEntry,
   type SelectionState,
 } from './groups';
 import { PALETTE } from './style';
@@ -44,32 +47,44 @@ describe('createGroup', () => {
     expect(createGroup(s, 'x', [], 'g').groups[0].color).toBe(PALETTE[1]);
   });
 
-  it('moves an already-selected individual legend into the group', () => {
+  it('keeps an individual selection when the same legend joins a group (both entries)', () => {
     const s = createGroup(assign(EMPTY_STATE, 1, null), 'x', [1], 'g');
-    expect(s.selected).toHaveLength(1);
+    expect(s.selected.map((e) => e.group ?? null)).toEqual([null, 'g']);
   });
 });
 
-describe('resolveForMap', () => {
+describe('drawEntries', () => {
   it('paints members with the group colour', () => {
     const s = updateGroup(withGroup(), 'g1', { color: '#123456' });
-    expect(resolveForMap(s).map((x) => x.color)).toEqual(['#123456', '#123456']);
+    expect(drawEntries(s)).toEqual([{ key: 'g1', color: '#123456', codes: [1, 2], band: undefined }]);
   });
 
-  it('hides every member when the group is hidden', () => {
+  it('leaves out every member when the group is hidden', () => {
     const s = updateGroup(withGroup(), 'g1', { hidden: true });
-    expect(resolveForMap(s).every((x) => x.hidden)).toBe(true);
+    expect(drawEntries(s)).toEqual([]);
   });
 
-  it('keeps a hidden member hidden while its group is visible', () => {
-    const s = setHidden(withGroup(), 2, true);
-    expect(resolveForMap(s).map((x) => x.hidden)).toEqual([false, true]);
+  it('leaves out a hidden member while its group stays visible', () => {
+    const s = setHidden(withGroup(), 2, 'g1', true);
+    expect(drawEntries(s)[0].codes).toEqual([1]);
   });
 
   it('keeps the own colour of individual selections', () => {
     const s = assign(withGroup(), 5, null);
     const own = s.selected.find((x) => x.code === 5)?.color;
-    expect(resolveForMap(s).find((x) => x.code === 5)?.color).toBe(own);
+    expect(drawEntries(s).find((e) => e.key === 'i5')?.color).toBe(own);
+  });
+
+  it('draws a legend once per group it belongs to', () => {
+    const s = createGroup(withGroup(), 'ナラタケ', [1], 'g2');
+    expect(drawEntries(s).filter((e) => e.codes.includes(1)).map((e) => e.key)).toEqual(['g1', 'g2']);
+  });
+});
+
+describe('sharedCodes', () => {
+  it('finds legends drawn by more than one entry', () => {
+    const s = createGroup(withGroup(), 'ナラタケ', [1, 9], 'g2');
+    expect([...sharedCodes(drawEntries(s))]).toEqual([1]);
   });
 });
 
@@ -78,22 +93,32 @@ describe('assign / toggle', () => {
     expect(assign(withGroup(), 3, 'g1').selected.find((s) => s.code === 3)?.group).toBe('g1');
   });
 
-  it('moving a member out of its group gives it a colour unused on the map', () => {
+  it('selecting a group member individually gives it a colour unused on the map', () => {
     const s = assign(withGroup(), 1, null);
-    const color = s.selected.find((x) => x.code === 1)?.color;
+    const color = s.selected.find((x) => x.code === 1 && !x.group)?.color;
     expect(usedColors(s).filter((c) => c === color)).toHaveLength(1);
+  });
+
+  it('adds the same legend to a second group', () => {
+    const s = assign(createGroup(withGroup(), 'ナラタケ', [], 'g2'), 1, 'g2');
+    expect(hasEntry(s, 1, 'g1') && hasEntry(s, 1, 'g2')).toBe(true);
   });
 
   it('treats an unknown group id as individual', () => {
     expect(assign(EMPTY_STATE, 1, 'nope').selected[0].group).toBeUndefined();
   });
 
-  it('toggle removes an already-selected legend', () => {
-    expect(toggle(withGroup(), 1, null).selected.map((s) => s.code)).toEqual([2]);
+  it('toggle removes the legend from the target only', () => {
+    const s = toggle(createGroup(withGroup(), 'ナラタケ', [1], 'g2'), 1, 'g2');
+    expect([hasEntry(s, 1, 'g1'), hasEntry(s, 1, 'g2')]).toEqual([true, false]);
   });
 
-  it('assignMany never selects a legend twice', () => {
-    expect(assignMany(withGroup(), [1, 2, 3], null).selected).toHaveLength(3);
+  it('toggle adds the legend to the target when it is only in another group', () => {
+    expect(hasEntry(toggle(withGroup(), 1, null), 1, null)).toBe(true);
+  });
+
+  it('assignMany never adds the same legend twice to one target', () => {
+    expect(assignMany(withGroup(), [1, 2, 3], 'g1').selected).toHaveLength(3);
   });
 });
 
@@ -117,7 +142,7 @@ describe('deleteGroup', () => {
 describe('setAllHidden', () => {
   it('also shows hidden groups again', () => {
     const s = setAllHidden(updateGroup(withGroup(), 'g1', { hidden: true }), false);
-    expect(resolveForMap(s).every((x) => !x.hidden)).toBe(true);
+    expect(drawEntries(s)[0].codes).toEqual([1, 2]);
   });
 });
 
@@ -126,32 +151,32 @@ describe('normalize', () => {
     const s = normalize({ groups: [], selected: [{ code: 1, color: '#000', group: 'gone' }] });
     expect(s.selected[0].group).toBeUndefined();
   });
+
+  it('collapses duplicate entries of the same legend and group', () => {
+    const dup = { code: 1, color: '#000', group: 'g' };
+    const s = normalize({ groups: [{ id: 'g', name: 'g', color: '#111' }], selected: [dup, dup] });
+    expect(s.selected).toHaveLength(1);
+  });
 });
 
 describe('mushroom conditions', () => {
   const autumn = (): SelectionState =>
     updateGroup(withGroup(), 'g1', { elev: [800, 1600], months: [9, 10] });
 
-  it('gives members the group band', () => {
-    expect(resolveForMap(autumn()).map((s) => s.band)).toEqual([
-      [800, 1600],
-      [800, 1600],
-    ]);
+  it('gives the group entry its band', () => {
+    expect(drawEntries(autumn())[0].band).toEqual([800, 1600]);
   });
 
   it('hides an out-of-season group when "今が旬だけ" is on', () => {
-    const s = resolveForMap(autumn(), { seasonOnly: true, month: 6 });
-    expect(s.every((x) => x.hidden)).toBe(true);
+    expect(drawEntries(autumn(), { seasonOnly: true, month: 6 })).toEqual([]);
   });
 
   it('keeps an in-season group visible when "今が旬だけ" is on', () => {
-    const s = resolveForMap(autumn(), { seasonOnly: true, month: 10 });
-    expect(s.every((x) => !x.hidden)).toBe(true);
+    expect(drawEntries(autumn(), { seasonOnly: true, month: 10 })).toHaveLength(1);
   });
 
   it('ignores the season when the toggle is off', () => {
-    const s = resolveForMap(autumn(), { seasonOnly: false, month: 6 });
-    expect(s.every((x) => !x.hidden)).toBe(true);
+    expect(drawEntries(autumn(), { seasonOnly: false, month: 6 })).toHaveLength(1);
   });
 
   it('treats a group without months as always in season', () => {
@@ -194,5 +219,19 @@ describe('groupsMatching', () => {
 
   it('matches when the polygon has no elevation data', () => {
     expect(groupsMatching(s(), 1, null, null)).toHaveLength(1);
+  });
+});
+
+describe('groupsMatching with shared legends', () => {
+  it('lists every group a polygon matches', () => {
+    const s = createGroup(withGroup(), 'ナラタケ', [1], 'g2');
+    expect(groupsMatching(s, 1, 900, 1000).map((g) => g.id)).toEqual(['g1', 'g2']);
+  });
+});
+
+describe('groupNamesOf', () => {
+  it('names every group holding the legend', () => {
+    const s = createGroup(withGroup(), 'ナラタケ', [1], 'g2');
+    expect(groupNamesOf(s, 1)).toEqual(['ミズナラ林', 'ナラタケ']);
   });
 });

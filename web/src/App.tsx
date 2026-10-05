@@ -15,6 +15,7 @@ import { MemoPanel } from './components/MemoPanel';
 import { SavePanel } from './components/SavePanel';
 import { SearchPanel } from './components/SearchPanel';
 import { loadBaseStyle } from './lib/basemap';
+import { registerPatternFactory } from './lib/patterns';
 import { dbAll, dbDelete, dbPut, STORES } from './lib/db';
 import {
   addElevationLayer,
@@ -149,7 +150,9 @@ export default function App() {
   );
   const month = new Date().getMonth() + 1;
   const view = useMemo<G.ViewOptions>(() => ({ seasonOnly, month }), [seasonOnly, month]);
-  const mapSelection = useMemo(() => G.resolveForMap(sel, view), [sel, view]);
+  const entries = useMemo(() => G.drawEntries(sel, view), [sel, view]);
+  // Legends drawn by several groups are striped where the groups' conditions overlap.
+  const hasOverlap = useMemo(() => G.sharedCodes(entries).size > 0, [entries]);
   const focusGroup = sel.groups.find((g) => g.id === focus) ?? null;
   // A focused group with its own band shades the terrain with that band; otherwise the
   // global elevation setting does.
@@ -182,6 +185,7 @@ export default function App() {
         attributionControl: false,
       });
       mapRef.current = map;
+      registerPatternFactory(map);
       // ?debug exposes the map to browser tests (layer/feature checks); never set otherwise.
       if (new URLSearchParams(location.search).has('debug')) {
         (window as unknown as { __map?: MlMap }).__map = map;
@@ -291,10 +295,10 @@ export default function App() {
     const map = mapRef.current;
     if (!mapReady || !map) return;
     for (const key of attached) {
-      applyVegStyle(map, key, mapSelection, elev, [...attached]);
+      applyVegStyle(map, key, entries, elev, [...attached]);
       applyKokuyuVisibility(map, key, showKokuyu);
     }
-  }, [mapReady, attached, mapSelection, elev, showKokuyu]);
+  }, [mapReady, attached, entries, elev, showKokuyu]);
 
   // Terrain mask/highlight does not depend on any prefecture being stored.
   useEffect(() => {
@@ -390,12 +394,18 @@ export default function App() {
                 <input
                   type="checkbox"
                   checked={!s.hidden}
-                  onChange={(e) => updateSel((cur) => G.setHidden(cur, s.code, !e.target.checked))}
+                  onChange={(e) => updateSel((cur) => G.setHidden(cur, s.code, undefined, !e.target.checked))}
                 />
                 <span className="swatch" style={{ background: s.color }} />
                 {legends.find((l) => l.c === s.code)?.n ?? s.code}
               </label>
             ))}
+            {hasOverlap && (
+              <div className="legend-overlap">
+                <span className="swatch stripes" />
+                重なり（複数グループに当てはまる）
+              </div>
+            )}
             {terrainBand.enabled && (
               <div className="legend-elev">
                 {focusGroup?.elev ? `🎯${focusGroup.name} ` : ''}

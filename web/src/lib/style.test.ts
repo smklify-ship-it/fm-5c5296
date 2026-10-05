@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ELEV_HIGHLIGHT_COLOR, ELEV_MASK_COLOR, elevationBandColor, nextColor, nextFreeColor, ownerFilter, PALETTE, withOwner, UNSELECTED_COLOR, vegColor, vegFilter, visibleSelections } from './style';
+import { entriesFilter, entriesLineColor, entriesPattern, entryMatch, ELEV_HIGHLIGHT_COLOR, ELEV_MASK_COLOR, elevationBandColor, nextColor, nextFreeColor, ownerFilter, PALETTE, withOwner, UNSELECTED_COLOR, vegColor, vegFilter, visibleSelections } from './style';
 
 const off = { enabled: false, min: 1000, max: 1600 };
 const on = { enabled: true, min: 1000, max: 1600 };
@@ -152,5 +152,43 @@ describe('ownerFilter', () => {
 
   it('withOwner without a selection filter is the ownership rule alone', () => {
     expect(withOwner(null, 'gunma', ['gunma'])).toEqual(ownerFilter('gunma', ['gunma']));
+  });
+});
+
+describe('entries (shared legends)', () => {
+  const a = { key: 'g1', color: '#FF0000', codes: [1, 2], band: [800, 1300] as [number, number] };
+  const b = { key: 'g2', color: '#0000ff', codes: [1] };
+
+  it('entriesFilter is null with no entries', () => {
+    expect(entriesFilter([], off)).toBeNull();
+  });
+
+  it('entriesFilter shows a polygon matching any entry', () => {
+    expect((entriesFilter([a, b], off) as unknown[])[0]).toBe('any');
+  });
+
+  it('entryMatch uses the entry band even when the global filter is off', () => {
+    expect(entryMatch(a, off)).toEqual([
+      'all',
+      ['in', ['get', 'c'], ['literal', [1, 2]]],
+      ['>=', ['coalesce', ['get', 'hi'], 1300], 800],
+      ['<=', ['coalesce', ['get', 'lo'], 800], 1300],
+    ]);
+  });
+
+  it('entriesPattern names every matching entry with its colour (lower case)', () => {
+    const expr = entriesPattern([a, b], off) as unknown[];
+    const concat = expr[1] as unknown[];
+    expect([expr[0], concat[0], concat[1], (concat[2] as unknown[])[2], (concat[3] as unknown[])[2]]).toEqual([
+      'image',
+      'concat',
+      'vm',
+      '|g1#ff0000',
+      '|g2#0000ff',
+    ]);
+  });
+
+  it('entriesLineColor falls back to grey with no entries', () => {
+    expect(entriesLineColor([], off)).toBe(UNSELECTED_COLOR);
   });
 });

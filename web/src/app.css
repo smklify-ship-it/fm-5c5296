@@ -440,13 +440,6 @@ button.icon {
   margin: 0 0 4px 12px;
 }
 
-select.move {
-  max-width: 5.5em;
-  font-size: 13px;
-  padding: 4px;
-  margin: 0;
-}
-
 .target {
   display: flex;
   align-items: center;
@@ -595,4 +588,17 @@ button.focus.on {
   .tabs button.sheet-size {
     display: none; /* height is always full on wide screens */
   }
+}
+
+/* Legend sample for polygons that match several groups (drawn striped on the map). */
+.swatch.stripes {
+  background: repeating-linear-gradient(45deg, #555555 0 3px, #ffffff 3px 6px);
+}
+
+.legend-overlap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  color: var(--muted);
 }
