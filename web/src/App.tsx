@@ -32,6 +32,11 @@ import type { BBox, ElevationRange, Memo, PrefEntry } from './lib/types';
 import { attachPref, fetchPrefIndex, isPrefStored, removePref, storePref } from './lib/vegsource';
 
 type Tab = 'veg' | 'elev' | 'save' | 'memo';
+// Panel height on phones. Fixed per size (not content-driven) so switching tabs never
+// resizes the map; the panel content scrolls instead.
+type SheetSize = 's' | 'm' | 'l';
+const SHEET_SIZES: SheetSize[] = ['s', 'm', 'l'];
+const SHEET_LABEL: Record<SheetSize, string> = { s: '小', m: '中', l: '大' };
 const TABS: [Tab, string][] = [
   ['veg', '群落'],
   ['elev', '標高・国有林'],
@@ -108,6 +113,7 @@ export default function App() {
   const [focus, setFocus] = useState<string | null>(() => loadSetting('focus', null));
   const [memos, setMemos] = useState<Memo[]>([]);
   const [tab, setTab] = useState<Tab | null>(null);
+  const [sheetSize, setSheetSize] = useState<SheetSize>(() => loadSetting('sheetSize', 'm'));
   const [viewBbox, setViewBbox] = useState<BBox | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
 
@@ -119,6 +125,7 @@ export default function App() {
   useEffect(() => saveSetting('kokuyu', showKokuyu), [showKokuyu]);
   useEffect(() => saveSetting('seasonOnly', seasonOnly), [seasonOnly]);
   useEffect(() => saveSetting('focus', focus), [focus]);
+  useEffect(() => saveSetting('sheetSize', sheetSize), [sheetSize]);
 
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -399,7 +406,7 @@ export default function App() {
           </div>
         )}
       </div>
-      <div className={`sheet ${tab ? 'open' : ''}`}>
+      <div className={`sheet ${tab ? 'open' : ''} size-${sheetSize}`}>
         <nav className="tabs">
           {TABS.map(([t, label]) => (
             <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(tab === t ? null : t)}>
@@ -407,6 +414,17 @@ export default function App() {
               {t === 'veg' && sel.selected.length > 0 ? `(${sel.selected.length})` : ''}
             </button>
           ))}
+          {tab && (
+            <button
+              className="sheet-size"
+              title="パネルの高さを切り替え（小→中→大）"
+              onClick={() =>
+                setSheetSize((cur) => SHEET_SIZES[(SHEET_SIZES.indexOf(cur) + 1) % SHEET_SIZES.length])
+              }
+            >
+              ↕{SHEET_LABEL[sheetSize]}
+            </button>
+          )}
         </nav>
         {tab === 'veg' && (
           <SearchPanel

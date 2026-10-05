@@ -71,10 +71,36 @@ button.link {
   background: var(--bg);
   border-top: 1px solid var(--line);
   box-shadow: 0 -2px 8px rgb(0 0 0 / 15%);
-  max-height: 60%;
   display: flex;
   flex-direction: column;
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Fixed open heights: switching tabs never resizes the map; the panel scrolls instead.
+   dvh follows the visible viewport on phones (address bar shown/hidden). */
+.sheet.open.size-s {
+  height: 32dvh;
+}
+
+.sheet.open.size-m {
+  height: 45dvh;
+}
+
+.sheet.open.size-l {
+  height: 70dvh;
+}
+
+.sheet.open > .panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.tabs button.sheet-size {
+  flex: none;
+  min-width: 40px;
+  padding: 12px 4px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .tabs {
@@ -86,8 +112,9 @@ button.link {
   border: none;
   border-radius: 0;
   background: none;
-  padding: 12px 4px;
+  padding: 12px 2px;
   font-size: 15px;
+  white-space: nowrap; /* a wrapped tab label makes the tab bar (and the map) jump */
 }
 
 .tabs button.active {
@@ -531,4 +558,41 @@ button.focus.on {
 
 .focus-note button {
   margin-left: 6px;
+}
+
+/* --- wide screens (PC, tablets in landscape): panel becomes a left sidebar --- */
+@media (min-width: 800px) {
+  .app {
+    flex-direction: row-reverse; /* map on the right, sidebar on the left */
+  }
+
+  .sheet,
+  .sheet.open.size-s,
+  .sheet.open.size-m,
+  .sheet.open.size-l {
+    height: 100%;
+    border-top: none;
+    border-right: 1px solid var(--line);
+    box-shadow: 2px 0 8px rgb(0 0 0 / 15%);
+  }
+
+  .sheet.open {
+    width: 380px;
+  }
+
+  /* Closed: a slim vertical tab strip, so the map keeps nearly the full width. */
+  .sheet:not(.open) .tabs {
+    flex-direction: column;
+  }
+
+  .sheet:not(.open) .tabs button {
+    flex: none;
+    width: 72px;
+    padding: 14px 4px;
+    font-size: 13px;
+  }
+
+  .tabs button.sheet-size {
+    display: none; /* height is always full on wide screens */
+  }
 }
