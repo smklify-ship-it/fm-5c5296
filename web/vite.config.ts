@@ -13,7 +13,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['style/*', 'icon.svg'],
+      includeAssets: ['style/*', 'icon.svg', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
         name: '植生マップ',
         short_name: '植生マップ',
@@ -24,7 +24,11 @@ export default defineConfig({
         scope: './',
         theme_color: '#2f5d3a',
         background_color: '#ffffff',
-        icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
+        icons: [
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+        ],
       },
       workbox: {
         // App shell + base style. Vegetation PMTiles are stored in IndexedDB by the app itself.

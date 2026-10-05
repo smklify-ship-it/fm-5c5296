@@ -63,6 +63,22 @@ function demKey(z: number, x: number, y: number): string {
   return `dem/${tileKey(z, x, y)}`;
 }
 
+/** A single-colour PNG. OffscreenCanvas.convertToBlob needs iOS 16.4+, so older Safari
+ *  falls back to a DOM canvas. */
+async function solidPng(size: number, color: string): Promise<Blob> {
+  const offscreen = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(size, size) : null;
+  const canvas = offscreen ?? Object.assign(document.createElement('canvas'), { width: size, height: size });
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!ctx) throw new Error('2D canvas unavailable for the elevation no-data tile');
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, size, size);
+  if (offscreen && 'convertToBlob' in offscreen) return offscreen.convertToBlob({ type: 'image/png' });
+  const dom = canvas as HTMLCanvasElement;
+  return new Promise((resolve, reject) =>
+    dom.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas.toBlob failed'))), 'image/png'),
+  );
+}
+
 let noDataPng: Promise<ArrayBuffer> | null = null;
 /**
  * A 256×256 tile of GSI's no-data colour (128,0,0) for sea (HTTP 404) or offline gaps.
@@ -70,14 +86,7 @@ let noDataPng: Promise<ArrayBuffer> | null = null;
  * so handing out one shared buffer breaks every tile after the first.
  */
 async function noDataTile(): Promise<ArrayBuffer> {
-  noDataPng ??= (async () => {
-    const canvas = new OffscreenCanvas(256, 256);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('2D canvas unavailable for the elevation no-data tile');
-    ctx.fillStyle = 'rgb(128,0,0)';
-    ctx.fillRect(0, 0, 256, 256);
-    return (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer();
-  })();
+  noDataPng ??= (async () => (await solidPng(256, 'rgb(128,0,0)')).arrayBuffer())();
   return (await noDataPng).slice(0);
 }
 

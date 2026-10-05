@@ -47,14 +47,33 @@ export async function fetchPrefIndex(): Promise<PrefIndex> {
   }
 }
 
-/** Key in IndexedDB includes the build date, so a rebuilt file is never mixed with an old one. */
+/** Key includes the build date, so a rebuilt file is never mixed with an old one. */
 function storeKey(fileName: string, built: string): string {
   return `${built}/${fileName}`;
 }
 
+/**
+ * Prefecture files live in the Cache API. Blobs in IndexedDB fail on WebKit in some modes
+ * (measured: every Blob put failed, even 1 KB), while Cache API stored 30 MB fine and reads
+ * back from disk without loading the whole file into memory.
+ */
+const FILE_CACHE = 'veg-files';
+
+function cacheUrl(fileName: string, built: string): string {
+  return new URL(`__veg-files/${storeKey(fileName, built)}`, document.baseURI).href;
+}
+
+/** Stored copy of one file: Cache API first, then the IndexedDB copy older versions wrote. */
+async function readStored(fileName: string, built: string): Promise<Blob | undefined> {
+  const cache = await caches.open(FILE_CACHE);
+  const hit = await cache.match(cacheUrl(fileName, built));
+  if (hit) return hit.blob();
+  return dbGet<Blob>(STORES.files, storeKey(fileName, built));
+}
+
 export async function isPrefStored(entry: PrefEntry): Promise<boolean> {
-  const veg = await dbGet<Blob>(STORES.files, storeKey(entry.veg, entry.built));
-  const kok = await dbGet<Blob>(STORES.files, storeKey(entry.kokuyu, entry.built));
+  const veg = await readStored(entry.veg, entry.built);
+  const kok = await readStored(entry.kokuyu, entry.built);
   return veg !== undefined && kok !== undefined;
 }
 
@@ -90,20 +109,24 @@ export async function storePref(
   const kok = await downloadBlob(dataUrl(entry.kokuyu), entry.kokuyuBytes, (n) =>
     onProgress(entry.vegBytes + n, total),
   );
-  await dbPut(STORES.files, storeKey(entry.veg, entry.built), veg);
-  await dbPut(STORES.files, storeKey(entry.kokuyu, entry.built), kok);
+  const cache = await caches.open(FILE_CACHE);
+  await cache.put(cacheUrl(entry.veg, entry.built), new Response(veg));
+  await cache.put(cacheUrl(entry.kokuyu, entry.built), new Response(kok));
 }
 
 export async function removePref(entry: PrefEntry): Promise<void> {
-  await dbDelete(STORES.files, storeKey(entry.veg, entry.built));
-  await dbDelete(STORES.files, storeKey(entry.kokuyu, entry.built));
+  const cache = await caches.open(FILE_CACHE);
+  for (const name of [entry.veg, entry.kokuyu]) {
+    await cache.delete(cacheUrl(name, entry.built));
+    await dbDelete(STORES.files, storeKey(name, entry.built)); // copy from older versions
+  }
 }
 
 /** Register stored files with the pmtiles protocol; returns the MapLibre source URLs. */
 export async function attachPref(entry: PrefEntry): Promise<{ veg: string; kokuyu: string }> {
   const urls: string[] = [];
   for (const name of [entry.veg, entry.kokuyu]) {
-    const blob = await dbGet<Blob>(STORES.files, storeKey(name, entry.built));
+    const blob = await readStored(name, entry.built);
     if (!blob) throw new Error(`${name} is not stored on this device`);
     const file = new File([blob], `${entry.built}-${name}`);
     protocol.add(new PMTiles(new FileSource(file)));
