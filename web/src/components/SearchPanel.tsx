@@ -13,6 +13,11 @@ interface Props {
   legends: Legend[];
   sel: G.SelectionState;
   onChange: Update;
+  focus: string | null;
+  onFocus: (id: string | null) => void;
+  seasonOnly: boolean;
+  onSeasonOnly: (v: boolean) => void;
+  month: number;
 }
 
 function elevText(l: Legend | undefined): string {
@@ -72,6 +77,89 @@ function SelectionRow({ sel, s, legend, color, onChange }: RowProps) {
   );
 }
 
+const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
+
+/** Mushroom conditions of a group: own elevation band and fruiting months (both optional). */
+function ConditionEditor({ group, onChange }: { group: G.Group; onChange: Update }) {
+  // Text state so a half-typed number is not normalised away while typing.
+  const [lo, setLo] = useState(group.elev ? String(group.elev[0]) : '');
+  const [hi, setHi] = useState(group.elev ? String(group.elev[1]) : '');
+  const toNum = (v: string) => (v.trim() === '' ? null : Number(v));
+  const commitBand = () => {
+    const band = G.makeBand(toNum(lo), toNum(hi));
+    // Both ends empty clears the band; one end empty keeps the previous band.
+    if (!band && (lo.trim() !== '' || hi.trim() !== '')) return;
+    onChange((cur) => G.updateGroup(cur, group.id, { elev: band }));
+    if (band) {
+      setLo(String(band[0]));
+      setHi(String(band[1]));
+    }
+  };
+  const toggleMonth = (m: number) => {
+    const cur = group.months ?? [];
+    const next = cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m].sort((a, b) => a - b);
+    onChange((st) => G.updateGroup(st, group.id, { months: next.length > 0 ? next : undefined }));
+  };
+  return (
+    <div className="conditions">
+      <div className="cond-row">
+        <span className="cond-label">標高</span>
+        <input
+          className="num"
+          inputMode="numeric"
+          placeholder="下限"
+          value={lo}
+          onChange={(e) => setLo(e.target.value)}
+          onBlur={commitBand}
+          onKeyDown={(e) => e.key === 'Enter' && commitBand()}
+        />
+        〜
+        <input
+          className="num"
+          inputMode="numeric"
+          placeholder="上限"
+          value={hi}
+          onChange={(e) => setHi(e.target.value)}
+          onBlur={commitBand}
+          onKeyDown={(e) => e.key === 'Enter' && commitBand()}
+        />
+        m
+        {group.elev && (
+          <button
+            className="link small"
+            onClick={() => {
+              setLo('');
+              setHi('');
+              onChange((cur) => G.updateGroup(cur, group.id, { elev: undefined }));
+            }}
+          >
+            なし
+          </button>
+        )}
+      </div>
+      <div className="cond-row">
+        <span className="cond-label">時期</span>
+        <div className="months">
+          {MONTHS.map((m) => (
+            <button
+              key={m}
+              className={`month ${group.months?.includes(m) ? 'on' : ''}`}
+              aria-pressed={group.months?.includes(m) ?? false}
+              onClick={() => toggleMonth(m)}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="hint">
+        標高を入れると、このグループは全体の標高設定ではなくこの標高帯で絞り込みます（区画単位）。
+        🎯注目にすると、地形のマスク／強調もこの標高帯になります。
+      </p>
+    </div>
+  );
+}
+
 interface GroupProps {
   sel: G.SelectionState;
   group: G.Group;
@@ -79,9 +167,12 @@ interface GroupProps {
   editing: boolean;
   onEdit: (id: string | null) => void;
   onChange: Update;
+  focused: boolean;
+  onFocus: (id: string | null) => void;
+  offSeason: boolean;
 }
 
-function GroupBlock({ sel, group, byCode, editing, onEdit, onChange }: GroupProps) {
+function GroupBlock({ sel, group, byCode, editing, onEdit, onChange, focused, onFocus, offSeason }: GroupProps) {
   const members = G.membersOf(sel, group.id);
   const commitName = (value: string) => {
     onChange((cur) => G.renameGroup(cur, group.id, value));
@@ -93,7 +184,7 @@ function GroupBlock({ sel, group, byCode, editing, onEdit, onChange }: GroupProp
   };
 
   return (
-    <li className={`group ${group.hidden ? 'is-hidden' : ''}`}>
+    <li className={`group ${group.hidden || offSeason ? 'is-hidden' : ''}`}>
       <div className="group-head">
         <input
           type="checkbox"
@@ -122,8 +213,23 @@ function GroupBlock({ sel, group, byCode, editing, onEdit, onChange }: GroupProp
         ) : (
           <button className="group-name" title="名前を変える" onClick={() => onEdit(group.id)}>
             {group.name}（{members.length}）✎
+            {(G.conditionText(group) || offSeason) && (
+              <span className="cond-summary">
+                {G.conditionText(group)}
+                {offSeason ? '・時期外' : ''}
+              </span>
+            )}
           </button>
         )}
+        <button
+          className={`icon focus ${focused ? 'on' : ''}`}
+          title={focused ? '注目を解除' : 'このグループの標高帯で地形をマスク／強調'}
+          aria-pressed={focused}
+          disabled={!group.elev && !focused}
+          onClick={() => onFocus(focused ? null : group.id)}
+        >
+          🎯
+        </button>
         <button
           className="icon"
           title={group.collapsed ? '中身を開く' : '中身を閉じる'}
@@ -135,6 +241,7 @@ function GroupBlock({ sel, group, byCode, editing, onEdit, onChange }: GroupProp
           🗑
         </button>
       </div>
+      {!group.collapsed && <ConditionEditor group={group} onChange={onChange} />}
       {!group.collapsed && (
         <ul className="results members">
           {members.length === 0 && <li className="hint">空です。検索して「追加先」にこのグループを選んで追加してください。</li>}
@@ -147,7 +254,16 @@ function GroupBlock({ sel, group, byCode, editing, onEdit, onChange }: GroupProp
   );
 }
 
-export function SearchPanel({ legends, sel, onChange }: Props) {
+export function SearchPanel({
+  legends,
+  sel,
+  onChange,
+  focus,
+  onFocus,
+  seasonOnly,
+  onSeasonOnly,
+  month,
+}: Props) {
   const [query, setQuery] = useState('');
   const [target, setTarget] = useState<G.Target>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -251,6 +367,12 @@ export function SearchPanel({ legends, sel, onChange }: Props) {
             </button>
           </div>
           {sel.groups.length > 0 && (
+            <label className="row season">
+              <input type="checkbox" checked={seasonOnly} onChange={(e) => onSeasonOnly(e.target.checked)} />
+              今が旬のグループだけ表示（今は{month}月。時期を入れていないグループは常に表示）
+            </label>
+          )}
+          {sel.groups.length > 0 && (
             <ul className="results groups">
               {sel.groups.map((g) => (
                 <GroupBlock
@@ -260,6 +382,9 @@ export function SearchPanel({ legends, sel, onChange }: Props) {
                   byCode={byCode}
                   editing={editing === g.id}
                   onEdit={setEditing}
+                  focused={focus === g.id}
+                  onFocus={onFocus}
+                  offSeason={seasonOnly && !G.inSeason(g, month)}
                   onChange={onChange}
                 />
               ))}

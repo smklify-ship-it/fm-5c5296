@@ -102,3 +102,36 @@ describe('elevationBandColor', () => {
     expect(stops.every((v, i) => i === 0 || v > stops[i - 1])).toBe(true);
   });
 });
+
+describe('vegFilter with group bands', () => {
+  it('uses a legend’s own band even when the global elevation filter is off', () => {
+    expect(vegFilter([{ code: 1, color: '#000', band: [800, 1600] }], off)).toEqual([
+      'all',
+      ['in', ['get', 'c'], ['literal', [1]]],
+      ['>=', ['coalesce', ['get', 'hi'], 1600], 800],
+      ['<=', ['coalesce', ['get', 'lo'], 800], 1600],
+    ]);
+  });
+
+  it('combines legends with different bands with "any"', () => {
+    const f = vegFilter(
+      [
+        { code: 1, color: '#000', band: [800, 1600] },
+        { code: 2, color: '#111' },
+      ],
+      off,
+    ) as unknown[];
+    expect([f[0], f.length]).toEqual(['any', 3]);
+  });
+
+  it('shares one clause between legends with the same band', () => {
+    const f = vegFilter(
+      [
+        { code: 1, color: '#000', band: [800, 1600] },
+        { code: 2, color: '#111', band: [800, 1600] },
+      ],
+      off,
+    ) as unknown[];
+    expect(f[1]).toEqual(['in', ['get', 'c'], ['literal', [1, 2]]]);
+  });
+});

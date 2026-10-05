@@ -432,3 +432,103 @@ select.move {
   padding: 4px;
   max-width: 11em;
 }
+
+/* --- mushroom conditions on groups --- */
+.cond-summary {
+  display: block;
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--muted);
+}
+
+.conditions {
+  margin: 2px 0 6px 12px;
+  padding: 6px 8px;
+  background: #f7f7f2;
+  border-radius: 6px;
+}
+
+.cond-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 4px 0;
+  font-size: 14px;
+}
+
+.cond-label {
+  width: 2.5em;
+  font-weight: bold;
+}
+
+input.num {
+  width: 5em;
+  font-size: 16px;
+  padding: 4px 6px;
+  border: 1px solid #bbbbbb;
+  border-radius: 6px;
+}
+
+.months {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+button.month {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 2px;
+  font-size: 13px;
+}
+
+button.month.on {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+}
+
+button.small {
+  font-size: 13px;
+  flex: none;
+  color: var(--warn);
+}
+
+button.focus {
+  opacity: 0.45;
+}
+
+button.focus.on {
+  opacity: 1;
+  background: #fff3cd;
+  border-color: #e0c060;
+}
+
+.season {
+  font-size: 14px;
+}
+
+.legend-cond {
+  margin-left: 4px;
+  color: var(--muted);
+}
+
+.popup-match {
+  margin-top: 4px;
+  font-weight: bold;
+  color: var(--green);
+}
+
+.focus-note {
+  background: #fff3cd;
+  border: 1px solid #e0c060;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  margin: 6px 0;
+}
+
+.focus-note button {
+  margin-left: 6px;
+}

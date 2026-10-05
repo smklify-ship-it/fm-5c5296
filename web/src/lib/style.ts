@@ -31,6 +31,9 @@ export interface Selection {
   hidden?: boolean;
   // Group id (see groups.ts). Members are painted with the group's colour instead of `color`.
   group?: string;
+  // Own elevation band [min, max] m (set by resolveForMap from the group). Overrides the
+  // global elevation filter for this legend.
+  band?: [number, number];
 }
 
 export function visibleSelections(selected: Selection[]): Selection[] {
@@ -48,21 +51,36 @@ export function nextFreeColor(used: string[]): string {
   return free ?? colorFor(used.length);
 }
 
-/** Filter for the coloured vegetation layer; null means "nothing to show → hide layer". */
+/** Polygon overlap test [lo, hi] ∩ [min, max] ≠ ∅. Polygons without DEM data (null) stay
+ *  visible rather than silently disappearing. */
+function bandOverlap(min: number, max: number): ExpressionSpecification[] {
+  return [
+    ['>=', ['coalesce', ['get', 'hi'], max], min],
+    ['<=', ['coalesce', ['get', 'lo'], min], max],
+  ];
+}
+
+/**
+ * Filter for the coloured vegetation layer; null means "nothing to show → hide layer".
+ * Legends with their own band (mushroom groups) use it; the others use the global band when
+ * the elevation filter is on. Legends sharing a band share one clause to keep the filter small.
+ */
 export function vegFilter(selected: Selection[], elev: ElevationRange): FilterSpecification | null {
   const shown = visibleSelections(selected);
   if (shown.length === 0) return null;
-  const codes = shown.map((s) => s.code);
-  const inSelection: ExpressionSpecification = ['in', ['get', 'c'], ['literal', codes]];
-  if (!elev.enabled) return inSelection;
-  // Overlap test [lo, hi] ∩ [min, max] ≠ ∅. Polygons without DEM data (null) stay visible
-  // rather than silently disappearing.
-  return [
-    'all',
-    inSelection,
-    ['>=', ['coalesce', ['get', 'hi'], elev.max], elev.min],
-    ['<=', ['coalesce', ['get', 'lo'], elev.min], elev.max],
-  ];
+  const byBand = new Map<string, { band: [number, number] | null; codes: number[] }>();
+  for (const s of shown) {
+    const band = s.band ?? (elev.enabled ? ([elev.min, elev.max] as [number, number]) : null);
+    const key = band ? band.join('-') : 'none';
+    const entry = byBand.get(key) ?? { band, codes: [] };
+    entry.codes.push(s.code);
+    byBand.set(key, entry);
+  }
+  const clauses: ExpressionSpecification[] = [...byBand.values()].map(({ band, codes }) => {
+    const inCodes: ExpressionSpecification = ['in', ['get', 'c'], ['literal', codes]];
+    return band ? ['all', inCodes, ...bandOverlap(band[0], band[1])] : inCodes;
+  });
+  return clauses.length === 1 ? clauses[0] : ['any', ...clauses];
 }
 
 export function vegColor(selected: Selection[]): ExpressionSpecification | string {

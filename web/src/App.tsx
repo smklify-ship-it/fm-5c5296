@@ -54,7 +54,7 @@ const ATTRIBUTION = [
   '県境: <a href="https://nlftp.mlit.go.jp/ksj/" target="_blank">「国土数値情報（行政区域データ）」(国土交通省)</a>をもとに作成',
 ];
 
-function featureHtml(features: MapGeoJSONFeature[]): HTMLElement {
+function featureHtml(features: MapGeoJSONFeature[], mushrooms: G.Group[]): HTMLElement {
   const box = document.createElement('div');
   box.className = 'popup';
   const veg = features.find((f) => f.sourceLayer === 'veg');
@@ -72,6 +72,10 @@ function featureHtml(features: MapGeoJSONFeature[]): HTMLElement {
     if (p.lo !== undefined && p.hi !== undefined) {
       line(`標高 ${p.lo}–${p.hi}m（平均 ${p.av}m）`);
     }
+  }
+  for (const g of mushrooms) {
+    const cond = G.conditionText(g);
+    line(`該当: ${g.name}${cond ? `（${cond}）` : ''}`, 'popup-match');
   }
   if (kok) {
     const p = kok.properties;
@@ -99,6 +103,9 @@ export default function App() {
   );
   const [elev, setElev] = useState<ElevationRange>(() => loadSetting('elev', DEFAULT_ELEV));
   const [showKokuyu, setShowKokuyu] = useState<boolean>(() => loadSetting('kokuyu', false));
+  const [seasonOnly, setSeasonOnly] = useState<boolean>(() => loadSetting('seasonOnly', false));
+  // Group whose band drives the terrain mask/highlight (only one band can shade the terrain).
+  const [focus, setFocus] = useState<string | null>(() => loadSetting('focus', null));
   const [memos, setMemos] = useState<Memo[]>([]);
   const [tab, setTab] = useState<Tab | null>(null);
   const [viewBbox, setViewBbox] = useState<BBox | null>(null);
@@ -110,6 +117,8 @@ export default function App() {
   }, [sel]);
   useEffect(() => saveSetting('elev', elev), [elev]);
   useEffect(() => saveSetting('kokuyu', showKokuyu), [showKokuyu]);
+  useEffect(() => saveSetting('seasonOnly', seasonOnly), [seasonOnly]);
+  useEffect(() => saveSetting('focus', focus), [focus]);
 
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -131,7 +140,24 @@ export default function App() {
     (code: number) => updateSel((cur) => G.toggle(cur, code, null)),
     [updateSel],
   );
-  const mapSelection = useMemo(() => G.resolveForMap(sel), [sel]);
+  const month = new Date().getMonth() + 1;
+  const view = useMemo<G.ViewOptions>(() => ({ seasonOnly, month }), [seasonOnly, month]);
+  const mapSelection = useMemo(() => G.resolveForMap(sel, view), [sel, view]);
+  const focusGroup = sel.groups.find((g) => g.id === focus) ?? null;
+  // A focused group with its own band shades the terrain with that band; otherwise the
+  // global elevation setting does.
+  const terrainBand = useMemo<ElevationRange>(() => {
+    if (!focusGroup?.elev) return elev;
+    const mode = elev.mode && elev.mode !== 'none' ? elev.mode : 'mask';
+    return { enabled: true, min: focusGroup.elev[0], max: focusGroup.elev[1], mode };
+  }, [focusGroup, elev]);
+  // The map click handler is registered once, so it reads the latest state through refs.
+  const selRef = useRef(sel);
+  const viewRef = useRef(view);
+  useEffect(() => {
+    selRef.current = sel;
+    viewRef.current = view;
+  }, [sel, view]);
 
   // --- map bootstrap -------------------------------------------------------
   useEffect(() => {
@@ -186,8 +212,18 @@ export default function App() {
         if (layers.length === 0) return;
         const features = map.queryRenderedFeatures(e.point, { layers });
         if (features.length === 0) return;
-        const content = featureHtml(features);
         const veg = features.find((f) => f.sourceLayer === 'veg');
+        const num = (v: unknown) => (typeof v === 'number' ? v : null);
+        const mushrooms = veg
+          ? G.groupsMatching(
+              selRef.current,
+              Number(veg.properties.c),
+              num(veg.properties.lo),
+              num(veg.properties.hi),
+              viewRef.current,
+            )
+          : [];
+        const content = featureHtml(features, mushrooms);
         if (veg) {
           const code = Number(veg.properties.c);
           const btn = document.createElement('button');
@@ -252,8 +288,8 @@ export default function App() {
   // Terrain mask/highlight does not depend on any prefecture being stored.
   useEffect(() => {
     const map = mapRef.current;
-    if (mapReady && map) applyElevationBand(map, elev);
-  }, [mapReady, elev]);
+    if (mapReady && map) applyElevationBand(map, terrainBand);
+  }, [mapReady, terrainBand]);
 
   // --- memo markers --------------------------------------------------------
   useEffect(() => {
@@ -318,17 +354,26 @@ export default function App() {
         {sel.selected.length + sel.groups.length > 0 && tab === null && (
           <div className="legend">
             {/* Groups collapse to one row each; individual legends follow. */}
-            {sel.groups.map((g) => (
-              <label key={g.id} className={g.hidden ? 'is-hidden' : ''}>
-                <input
-                  type="checkbox"
-                  checked={!g.hidden}
-                  onChange={(e) => updateSel((cur) => G.updateGroup(cur, g.id, { hidden: !e.target.checked }))}
-                />
-                <span className="swatch" style={{ background: g.color }} />
-                {g.name}（{G.membersOf(sel, g.id).length}）
-              </label>
-            ))}
+            {sel.groups.map((g) => {
+              const offSeason = seasonOnly && !G.inSeason(g, month);
+              const cond = G.conditionText(g);
+              return (
+                <label key={g.id} className={G.groupOff(g, view) ? 'is-hidden' : ''}>
+                  <input
+                    type="checkbox"
+                    checked={!g.hidden}
+                    onChange={(e) => updateSel((cur) => G.updateGroup(cur, g.id, { hidden: !e.target.checked }))}
+                  />
+                  <span className="swatch" style={{ background: g.color }} />
+                  <span>
+                    {focus === g.id ? '🎯' : ''}
+                    {g.name}（{G.membersOf(sel, g.id).length}）
+                    {cond && <span className="legend-cond">{cond}</span>}
+                    {offSeason && <span className="legend-cond">時期外</span>}
+                  </span>
+                </label>
+              );
+            })}
             {G.individuals(sel).map((s) => (
               <label key={s.code} className={s.hidden ? 'is-hidden' : ''}>
                 <input
@@ -340,9 +385,10 @@ export default function App() {
                 {legends.find((l) => l.c === s.code)?.n ?? s.code}
               </label>
             ))}
-            {elev.enabled && (
+            {terrainBand.enabled && (
               <div className="legend-elev">
-                標高 {elev.min}–{elev.max}m
+                {focusGroup?.elev ? `🎯${focusGroup.name} ` : ''}
+                標高 {terrainBand.min}–{terrainBand.max}m
               </div>
             )}
           </div>
@@ -363,10 +409,26 @@ export default function App() {
           ))}
         </nav>
         {tab === 'veg' && (
-          <SearchPanel legends={legends} sel={sel} onChange={updateSel} />
+          <SearchPanel
+            legends={legends}
+            sel={sel}
+            onChange={updateSel}
+            focus={focus}
+            onFocus={setFocus}
+            seasonOnly={seasonOnly}
+            onSeasonOnly={setSeasonOnly}
+            month={month}
+          />
         )}
         {tab === 'elev' && (
-          <ElevationPanel elev={elev} onChange={setElev} showKokuyu={showKokuyu} onShowKokuyu={setShowKokuyu} />
+          <ElevationPanel
+            elev={elev}
+            onChange={setElev}
+            showKokuyu={showKokuyu}
+            onShowKokuyu={setShowKokuyu}
+            focus={focusGroup?.elev ? { name: focusGroup.name, band: focusGroup.elev } : null}
+            onClearFocus={() => setFocus(null)}
+          />
         )}
         {tab === 'save' && (
           <SavePanel

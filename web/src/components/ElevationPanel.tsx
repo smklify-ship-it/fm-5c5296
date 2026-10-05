@@ -14,14 +14,24 @@ interface Props {
   onChange: (e: ElevationRange) => void;
   showKokuyu: boolean;
   onShowKokuyu: (v: boolean) => void;
+  // A focused mushroom group overrides the band used to shade the terrain.
+  focus: { name: string; band: [number, number] } | null;
+  onClearFocus: () => void;
 }
 
-export function ElevationPanel({ elev, onChange, showKokuyu, onShowKokuyu }: Props) {
+export function ElevationPanel({ elev, onChange, showKokuyu, onShowKokuyu, focus, onClearFocus }: Props) {
   const setMin = (v: number) => onChange({ ...elev, min: Math.min(v, elev.max) });
   const setMax = (v: number) => onChange({ ...elev, max: Math.max(v, elev.min) });
   const mode = elev.mode ?? 'mask';
   return (
     <div className="panel">
+      {focus && (
+        <div className="focus-note">
+          🎯 注目中: {focus.name}（{focus.band[0]}–{focus.band[1]}m）。地形のマスク／強調はこの標高帯で
+          表示しています。
+          <button onClick={onClearFocus}>注目を解除</button>
+        </div>
+      )}
       <label className="row">
         <input
           type="checkbox"

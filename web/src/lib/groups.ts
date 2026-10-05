@@ -4,6 +4,7 @@
  *
  * Rules: a legend is selected at most once, either on its own (own colour) or as a member of
  * exactly one group (painted with the group colour). Hiding a group hides all its members.
+ * A group may carry mushroom conditions: its own elevation band and fruiting months.
  */
 import { nextFreeColor, type Selection } from './style';
 
@@ -13,6 +14,16 @@ export interface Group {
   color: string;
   hidden?: boolean;
   collapsed?: boolean;
+  // Own elevation band [min, max] m; overrides the global elevation filter for its members.
+  elev?: [number, number];
+  // Fruiting months 1–12, used by "今が旬だけ表示".
+  months?: number[];
+}
+
+/** Display options that change what resolveForMap returns. */
+export interface ViewOptions {
+  seasonOnly: boolean;
+  month: number; // 1–12, the current month
 }
 
 export interface SelectionState {
@@ -101,7 +112,7 @@ export function renameGroup(state: SelectionState, id: string, name: string): Se
 export function updateGroup(
   state: SelectionState,
   id: string,
-  patch: Partial<Pick<Group, 'color' | 'hidden' | 'collapsed'>>,
+  patch: Partial<Pick<Group, 'color' | 'hidden' | 'collapsed' | 'elev' | 'months'>>,
 ): SelectionState {
   return { ...state, groups: state.groups.map((g) => (g.id === id ? { ...g, ...patch } : g)) };
 }
@@ -126,17 +137,66 @@ export function setAllHidden(state: SelectionState, hidden: boolean): SelectionS
   };
 }
 
-/** What the map draws: members take their group's colour and are hidden with the group. */
-export function resolveForMap(state: SelectionState): Selection[] {
+/** A group without months is "always in season" (the season toggle only hides known misses). */
+export function inSeason(group: Group, month: number): boolean {
+  return !group.months || group.months.length === 0 || group.months.includes(month);
+}
+
+/** Group hidden by its own checkbox, or by the season toggle. */
+export function groupOff(group: Group, view?: ViewOptions): boolean {
+  return Boolean(group.hidden || (view?.seasonOnly && !inSeason(group, view.month)));
+}
+
+/**
+ * What the map draws: members take their group's colour and band, and are hidden with the
+ * group (or when the group is out of season and "今が旬だけ表示" is on).
+ */
+export function resolveForMap(state: SelectionState, view?: ViewOptions): Selection[] {
   const byId = new Map(state.groups.map((g) => [g.id, g]));
   return state.selected.map((s) => {
     const g = s.group ? byId.get(s.group) : undefined;
     return {
       code: s.code,
       color: g?.color ?? s.color,
-      hidden: Boolean(s.hidden || g?.hidden),
+      hidden: Boolean(s.hidden || (g && groupOff(g, view))),
+      band: g?.elev,
     };
   });
+}
+
+/** Normalise a user-entered band: both ends required, swapped if reversed, 0–4000 m. */
+export function makeBand(min: number | null, max: number | null): [number, number] | undefined {
+  if (min === null || max === null || !Number.isFinite(min) || !Number.isFinite(max)) return undefined;
+  const clamp = (v: number) => Math.min(4000, Math.max(0, Math.round(v)));
+  const [a, b] = [clamp(min), clamp(max)];
+  return a <= b ? [a, b] : [b, a];
+}
+
+/** Groups (visible, in season) whose legends include `code` and whose band overlaps the polygon. */
+export function groupsMatching(
+  state: SelectionState,
+  code: number,
+  lo: number | null,
+  hi: number | null,
+  view?: ViewOptions,
+): Group[] {
+  const member = state.selected.find((s) => s.code === code && s.group && !s.hidden);
+  if (!member) return [];
+  return state.groups.filter((g) => {
+    if (g.id !== member.group || groupOff(g, view)) return false;
+    if (!g.elev || lo === null || hi === null) return true;
+    return hi >= g.elev[0] && lo <= g.elev[1];
+  });
+}
+
+/** Short text such as "800–1600m・9,10月" for headers and the map legend. */
+export function conditionText(group: Group): string {
+  const parts: string[] = [];
+  if (group.elev) parts.push(`${group.elev[0]}–${group.elev[1]}m`);
+  if (group.months && group.months.length > 0) {
+    parts.push(`${[...group.months].sort((a, b) => a - b).join(',')}月`);
+  }
+  return parts.join('・');
 }
 
 export function membersOf(state: SelectionState, id: string): Selection[] {
