@@ -1,8 +1,13 @@
-import type { ElevationRange } from '../lib/types';
+import type { ElevationMode, ElevationRange } from '../lib/types';
 
 const MIN_M = 0;
 const MAX_M = 3200;
 const STEP_M = 50;
+const MODES: [ElevationMode, string][] = [
+  ['mask', 'マスク（帯の外を灰色で隠す）'],
+  ['highlight', '強調（帯の中を黄色で塗る）'],
+  ['none', '区画の絞り込みだけ'],
+];
 
 interface Props {
   elev: ElevationRange;
@@ -14,6 +19,7 @@ interface Props {
 export function ElevationPanel({ elev, onChange, showKokuyu, onShowKokuyu }: Props) {
   const setMin = (v: number) => onChange({ ...elev, min: Math.min(v, elev.max) });
   const setMax = (v: number) => onChange({ ...elev, max: Math.max(v, elev.min) });
+  const mode = elev.mode ?? 'mask';
   return (
     <div className="panel">
       <label className="row">
@@ -52,9 +58,24 @@ export function ElevationPanel({ elev, onChange, showKokuyu, onShowKokuyu }: Pro
             onChange={(e) => setMax(Number(e.target.value))}
           />
         </label>
+        <div className="modes" role="radiogroup" aria-label="地形の表示">
+          {MODES.map(([value, label]) => (
+            <label key={value} className="row">
+              <input
+                type="radio"
+                name="elev-mode"
+                checked={mode === value}
+                disabled={!elev.enabled}
+                onChange={() => onChange({ ...elev, mode: value })}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
         <p className="hint">
-          区画の一部でもこの標高帯にかかれば表示します（区画は分割しません）。
-          標高差の大きい区画は帯の外まで色が付くので、等高線で確かめてください。
+          植生は「区画の一部でもこの標高帯にかかれば」表示します。マスク／強調は地形そのもの
+          （約15m間隔の標高）で塗り分けるので、帯の外にはみ出した部分が分かります。
+          海や標高データが無い所はマスクでは灰色になります。
         </p>
       </div>
       <hr />

@@ -36,10 +36,15 @@ export interface Memo {
   text: string;
 }
 
+/** How terrain outside/inside the band is drawn: grey out outside, tint inside, or nothing. */
+export type ElevationMode = 'mask' | 'highlight' | 'none';
+
 export interface ElevationRange {
   enabled: boolean;
   min: number;
   max: number;
+  // Optional so settings saved before terrain shading existed still load (treated as 'mask').
+  mode?: ElevationMode;
 }
 
 export interface SavedArea {

@@ -1,5 +1,5 @@
 import type { ExpressionSpecification, FilterSpecification } from 'maplibre-gl';
-import type { ElevationRange } from './types';
+import type { ElevationMode, ElevationRange } from './types';
 
 // Colour-blind-friendly first, then high-contrast extras; all readable over the GSI base map.
 export const PALETTE = [
@@ -71,4 +71,40 @@ export function vegColor(selected: Selection[]): ExpressionSpecification | strin
   // The spec type models `match` as a fixed-arity tuple and cannot express a spread of
   // label/value pairs, so the (valid) runtime expression is cast through unknown.
   return ['match', ['get', 'c'], ...pairs, UNSELECTED_COLOR] as unknown as ExpressionSpecification;
+}
+
+// Terrain shading for the elevation band (MapLibre `color-relief` over GSI elevation tiles).
+export const ELEV_MASK_COLOR = 'rgba(40, 40, 40, 0.55)';
+export const ELEV_HIGHLIGHT_COLOR = 'rgba(255, 190, 0, 0.35)';
+const TRANSPARENT = 'rgba(0, 0, 0, 0)';
+// color-relief interpolates between stops; a 1 m ramp makes the band edge effectively hard
+// (DEM pixels are ~15 m apart, so nothing visible falls inside the ramp).
+const EDGE_M = 1;
+
+export function effectiveMode(elev: ElevationRange): ElevationMode {
+  return elev.enabled ? (elev.mode ?? 'mask') : 'none';
+}
+
+/** Colour ramp over ["elevation"]; null means "no terrain shading" (layer hidden). */
+export function elevationBandColor(elev: ElevationRange): ExpressionSpecification | null {
+  const mode = effectiveMode(elev);
+  if (mode === 'none') return null;
+  const inside = mode === 'mask' ? TRANSPARENT : ELEV_HIGHLIGHT_COLOR;
+  const outside = mode === 'mask' ? ELEV_MASK_COLOR : TRANSPARENT;
+  const min = elev.min;
+  // Stops must strictly increase even when the band is a single value.
+  const max = Math.max(elev.max, min + EDGE_M);
+  return [
+    'interpolate',
+    ['linear'],
+    ['elevation'],
+    min - EDGE_M,
+    outside,
+    min,
+    inside,
+    max,
+    inside,
+    max + EDGE_M,
+    outside,
+  ];
 }

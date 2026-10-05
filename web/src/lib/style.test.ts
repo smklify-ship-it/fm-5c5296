@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextColor, nextFreeColor, PALETTE, UNSELECTED_COLOR, vegColor, vegFilter, visibleSelections } from './style';
+import { ELEV_HIGHLIGHT_COLOR, ELEV_MASK_COLOR, elevationBandColor, nextColor, nextFreeColor, PALETTE, UNSELECTED_COLOR, vegColor, vegFilter, visibleSelections } from './style';
 
 const off = { enabled: false, min: 1000, max: 1600 };
 const on = { enabled: true, min: 1000, max: 1600 };
@@ -70,5 +70,35 @@ describe('nextColor', () => {
 
   it('reuses a colour freed by removing a selection', () => {
     expect(nextColor([{ code: 1, color: PALETTE[1] }])).toBe(PALETTE[0]);
+  });
+});
+
+describe('elevationBandColor', () => {
+  const band = { enabled: true, min: 1000, max: 1600 };
+
+  it('is null when the elevation filter is off', () => {
+    expect(elevationBandColor({ ...band, enabled: false })).toBeNull();
+  });
+
+  it('is null in polygon-only mode', () => {
+    expect(elevationBandColor({ ...band, mode: 'none' })).toBeNull();
+  });
+
+  it('masks outside the band and keeps the band clear (default mode for older settings)', () => {
+    expect(elevationBandColor(band)).toEqual([
+      'interpolate', ['linear'], ['elevation'],
+      999, ELEV_MASK_COLOR, 1000, 'rgba(0, 0, 0, 0)', 1600, 'rgba(0, 0, 0, 0)', 1601, ELEV_MASK_COLOR,
+    ]);
+  });
+
+  it('tints inside the band in highlight mode', () => {
+    const expr = elevationBandColor({ ...band, mode: 'highlight' }) as unknown[];
+    expect([expr[6], expr[8]]).toEqual([ELEV_HIGHLIGHT_COLOR, ELEV_HIGHLIGHT_COLOR]);
+  });
+
+  it('keeps stops strictly increasing when min equals max', () => {
+    const expr = elevationBandColor({ ...band, min: 1200, max: 1200 }) as unknown[];
+    const stops = [expr[3], expr[5], expr[7], expr[9]] as number[];
+    expect(stops.every((v, i) => i === 0 || v > stops[i - 1])).toBe(true);
   });
 });

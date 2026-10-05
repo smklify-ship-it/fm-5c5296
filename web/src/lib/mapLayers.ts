@@ -1,5 +1,6 @@
 import type { Map as MlMap } from 'maplibre-gl';
-import { vegColor, vegFilter, type Selection } from './style';
+import { DEM_SOURCE } from './basemap';
+import { elevationBandColor, vegColor, vegFilter, type Selection } from './style';
 import type { ElevationRange } from './types';
 
 // Layer names inside the PMTiles, set by pipeline/vegmap/build.py (write_pmtiles layer=...).
@@ -18,9 +19,33 @@ export const ids = (key: string) => ({
   kokLine: `kok-line-${key}`,
 });
 
-/** Vegetation goes under the base map's labels so place names stay readable. */
+const DEM_SRC = 'gsi-dem';
+const ELEV_LAYER = 'elev-band';
+
+/**
+ * Vegetation goes under the elevation mask (so the mask can grey it out) and under the base
+ * map's labels (so place names stay readable).
+ */
 function firstSymbolLayer(map: MlMap): string | undefined {
+  if (map.getLayer(ELEV_LAYER)) return ELEV_LAYER;
   return map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+}
+
+/** Terrain shading for the elevation band; added once after the base style loads. */
+export function addElevationLayer(map: MlMap): void {
+  if (map.getLayer(ELEV_LAYER)) return;
+  map.addSource(DEM_SRC, DEM_SOURCE);
+  map.addLayer(
+    { id: ELEV_LAYER, type: 'color-relief', source: DEM_SRC, layout: { visibility: 'none' } },
+    map.getStyle().layers.find((l) => l.type === 'symbol')?.id,
+  );
+}
+
+export function applyElevationBand(map: MlMap, elev: ElevationRange): void {
+  if (!map.getLayer(ELEV_LAYER)) return;
+  const color = elevationBandColor(elev);
+  map.setLayoutProperty(ELEV_LAYER, 'visibility', color ? 'visible' : 'none');
+  if (color) map.setPaintProperty(ELEV_LAYER, 'color-relief-color', color);
 }
 
 export function addPrefLayers(map: MlMap, key: string, urls: { veg: string; kokuyu: string }): void {

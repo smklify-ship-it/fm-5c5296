@@ -17,7 +17,9 @@ import { SearchPanel } from './components/SearchPanel';
 import { loadBaseStyle } from './lib/basemap';
 import { dbAll, dbDelete, dbPut, STORES } from './lib/db';
 import {
+  addElevationLayer,
   addPrefLayers,
+  applyElevationBand,
   applyKokuyuVisibility,
   applyVegStyle,
   hitLayerIds,
@@ -174,6 +176,7 @@ export default function App() {
         containerRef.current
           ?.querySelector('.maplibregl-ctrl-attrib')
           ?.classList.remove('maplibregl-compact-show');
+        addElevationLayer(map);
         setMapReady(true);
       });
       map.on('error', (e) => console.error('map error', e.error));
@@ -245,6 +248,12 @@ export default function App() {
       applyKokuyuVisibility(map, key, showKokuyu);
     }
   }, [mapReady, attached, mapSelection, elev, showKokuyu]);
+
+  // Terrain mask/highlight does not depend on any prefecture being stored.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (mapReady && map) applyElevationBand(map, elev);
+  }, [mapReady, elev]);
 
   // --- memo markers --------------------------------------------------------
   useEffect(() => {
