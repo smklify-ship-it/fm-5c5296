@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextColor, PALETTE, UNSELECTED_COLOR, vegColor, vegFilter } from './style';
+import { nextColor, PALETTE, UNSELECTED_COLOR, vegColor, vegFilter, visibleSelections } from './style';
 
 const off = { enabled: false, min: 1000, max: 1600 };
 const on = { enabled: true, min: 1000, max: 1600 };
@@ -20,6 +20,30 @@ describe('vegFilter', () => {
       ['>=', ['coalesce', ['get', 'hi'], 1600], 1000],
       ['<=', ['coalesce', ['get', 'lo'], 1000], 1600],
     ]);
+  });
+
+  it('leaves hidden selections out of the filter', () => {
+    const selected = [
+      { code: 1, color: '#000' },
+      { code: 2, color: '#111', hidden: true },
+    ];
+    expect(vegFilter(selected, off)).toEqual(['in', ['get', 'c'], ['literal', [1]]]);
+  });
+
+  it('returns null when every selection is hidden (layer hidden)', () => {
+    expect(vegFilter([{ code: 1, color: '#000', hidden: true }], off)).toBeNull();
+  });
+});
+
+describe('visibleSelections', () => {
+  it('treats a selection without the hidden flag (older saved data) as visible', () => {
+    expect(visibleSelections([{ code: 1, color: '#000' }])).toHaveLength(1);
+  });
+});
+
+describe('nextColor with hidden selections', () => {
+  it('does not reuse the colour of a hidden selection', () => {
+    expect(nextColor([{ code: 1, color: PALETTE[0], hidden: true }])).toBe(PALETTE[1]);
   });
 });
 

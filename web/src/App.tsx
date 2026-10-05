@@ -133,6 +133,15 @@ export default function App() {
     });
   }, []);
 
+  // Hiding keeps the selection and its colour, so it can be shown again with one tap.
+  const setHidden = useCallback((code: number, hidden: boolean) => {
+    setSelected((cur) => cur.map((s) => (s.code === code ? { ...s, hidden } : s)));
+  }, []);
+
+  const setAllHidden = useCallback((hidden: boolean) => {
+    setSelected((cur) => cur.map((s) => ({ ...s, hidden })));
+  }, []);
+
   // --- map bootstrap -------------------------------------------------------
   useEffect(() => {
     let disposed = false;
@@ -311,10 +320,15 @@ export default function App() {
         {selected.length > 0 && tab === null && (
           <div className="legend">
             {selected.map((s) => (
-              <div key={s.code}>
+              <label key={s.code} className={s.hidden ? 'is-hidden' : ''}>
+                <input
+                  type="checkbox"
+                  checked={!s.hidden}
+                  onChange={(e) => setHidden(s.code, !e.target.checked)}
+                />
                 <span className="swatch" style={{ background: s.color }} />
                 {legends.find((l) => l.c === s.code)?.n ?? s.code}
-              </div>
+              </label>
             ))}
             {elev.enabled && (
               <div className="legend-elev">
@@ -344,6 +358,8 @@ export default function App() {
             selected={selected}
             onToggle={toggleCode}
             onSelectMany={selectMany}
+            onSetHidden={setHidden}
+            onSetAllHidden={setAllHidden}
             onClear={() => setSelected([])}
           />
         )}

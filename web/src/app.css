@@ -168,23 +168,32 @@ select {
   vertical-align: middle;
 }
 
-.chips {
+/* Selected-legend rows carry a remove button beside the label. */
+.results li:has(.remove) {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.chip {
-  font-size: 13px;
-  padding: 4px 8px;
-  border-radius: 14px;
-  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  border-bottom: 1px solid #eeeeee;
 }
 
-.chip.clear {
+.results li:has(.remove) label {
+  flex: 1;
+  border-bottom: none;
+}
+
+.results .remove {
+  min-width: 36px;
+  min-height: 36px;
+  color: var(--warn);
+}
+
+.is-hidden .name,
+.is-hidden .swatch,
+.legend .is-hidden {
+  opacity: 0.4;
+}
+
+button.danger {
   color: var(--warn);
 }
 
@@ -255,13 +264,26 @@ progress {
   max-width: 60%;
   background: rgb(255 255 255 / 90%);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 4px 8px;
   font-size: 12px;
-  line-height: 1.6;
+  /* Many selections must not push the map out of view; the list scrolls instead. */
+  max-height: 45%;
+  overflow-y: auto;
 }
 
-.legend .swatch {
-  margin-right: 4px;
+/* Each row is a full-width tap target (~32px) so it works outdoors and with gloves. */
+.legend label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.legend input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
 }
 
 .legend-elev {
