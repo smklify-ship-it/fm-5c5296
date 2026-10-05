@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import shapely
 
-from vegmap.build import select_veg_columns, summarize_legends
+from vegmap.build import keep_inside, select_veg_columns, summarize_legends
 
 
 def _raw() -> gpd.GeoDataFrame:
@@ -56,3 +56,30 @@ def test_summarize_legends_elevation_range_spans_all_polygons() -> None:
 def test_summarize_legends_missing_elevation_is_none() -> None:
     last = summarize_legends(_with_elev())[1]
     assert (last["lo"], last["hi"]) == (None, None)
+
+
+def _grid() -> gpd.GeoDataFrame:
+    # Three unit squares along x: [0,1], [1,2] (straddles the border at x=1.6), [3,4].
+    # The border avoids x=1.5, the square's own centre: a point exactly on a border line
+    # belongs to neither side, which real (irregular) boundaries practically never hit.
+    return gpd.GeoDataFrame(
+        {"c": [1, 2, 3]},
+        geometry=[shapely.box(0, 0, 1, 1), shapely.box(1, 0, 2, 1), shapely.box(3, 0, 4, 1)],
+        crs="EPSG:6668",
+    )
+
+
+def test_keep_inside_drops_polygons_outside_the_prefecture() -> None:
+    inside = keep_inside(_grid(), shapely.box(-1, -1, 1.6, 2))
+    assert inside["c"].tolist() == [1, 2]  # square 3 lies wholly outside
+
+
+def test_keep_inside_border_polygon_goes_to_exactly_one_side() -> None:
+    west = keep_inside(_grid(), shapely.box(-1, -1, 1.6, 2))["c"].tolist()
+    east = keep_inside(_grid(), shapely.box(1.6, -1, 5, 2))["c"].tolist()
+    assert sorted(west + east) == [1, 2, 3]
+
+
+def test_keep_inside_keeps_border_polygon_whole() -> None:
+    east = keep_inside(_grid(), shapely.box(1.4, -1, 5, 2))
+    assert east.geometry.iloc[0].equals(shapely.box(1, 0, 2, 1))

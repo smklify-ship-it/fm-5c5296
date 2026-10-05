@@ -19,6 +19,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pyogrio
+import shapely
 
 from .dem import DemMosaic, build_mosaic, polygon_elevation
 from .fetch import download_file
@@ -31,6 +32,8 @@ OUT_DIR = ROOT.parent / "web" / "public" / "data"
 INDEX_NAME = "prefs.json"
 
 KOKUYU_URL = "https://nlftp.mlit.go.jp/ksj/gml/data/A45/A45-19/A45-19_{code}_GML.zip"
+# 国土数値情報 行政区域 (2025-01-01). Used to give every polygon to exactly one prefecture.
+BOUNDARY_URL = "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2025/N03-20250101_{code}_GML.zip"
 
 # Below z8 a prefecture is a few hundred pixels wide; vegetation is unreadable there and
 # would only bloat the file. MapLibre over-zooms z13 tiles for closer views: at 36N a z13
@@ -116,6 +119,35 @@ def summarize_legends(df: pd.DataFrame) -> list[dict[str, Any]]:
     return legends
 
 
+def keep_inside(df: gpd.GeoDataFrame, boundary: shapely.Geometry) -> gpd.GeoDataFrame:
+    """Polygons whose representative point lies inside `boundary` (same CRS).
+
+    Border polygons are kept whole and go to exactly one prefecture, so neighbouring
+    prefecture files neither overlap (double-painted colours) nor leave gaps.
+    """
+    points = df.geometry.representative_point()
+    shapely.prepare(boundary)
+    mask = shapely.contains_xy(boundary, points.x.to_numpy(), points.y.to_numpy())
+    return df[mask].reset_index(drop=True)
+
+
+def _read_shp_from_zip(zip_path: Path) -> gpd.GeoDataFrame:
+    with zipfile.ZipFile(zip_path) as zf:
+        shp = next((n for n in zf.namelist() if n.lower().endswith(".shp")), None)
+    if shp is None:
+        raise FileNotFoundError(f"no .shp inside {zip_path}")
+    # The zips ship a .cpg (Shift_JIS); GDAL honours it, so no encoding override here.
+    return pyogrio.read_dataframe(f"/vsizip/{zip_path.as_posix()}/{shp}")
+
+
+def read_pref_boundary(code: str, crs: Any) -> shapely.Geometry:
+    zip_path = download_file(
+        BOUNDARY_URL.format(code=code), CACHE / "boundary" / f"N03-20250101_{code}_GML.zip"
+    )
+    df = _read_shp_from_zip(zip_path).to_crs(crs)
+    return shapely.union_all(shapely.make_valid(df.geometry.to_numpy()))
+
+
 def write_pmtiles(df: gpd.GeoDataFrame, path: Path, layer: str, description: str) -> None:
     if path.exists():
         path.unlink()
@@ -141,12 +173,7 @@ def read_kokuyu(code: str) -> gpd.GeoDataFrame:
     zip_path = download_file(
         KOKUYU_URL.format(code=code), CACHE / "kokuyu" / f"A45-19_{code}_GML.zip"
     )
-    with zipfile.ZipFile(zip_path) as zf:
-        shp = next((n for n in zf.namelist() if n.lower().endswith(".shp")), None)
-    if shp is None:
-        raise FileNotFoundError(f"no .shp inside {zip_path}")
-    # The zip ships a .cpg (Shift_JIS); GDAL honours it, so no encoding override here.
-    df = pyogrio.read_dataframe(f"/vsizip/{zip_path.as_posix()}/{shp}")
+    df = _read_shp_from_zip(zip_path)
     out = df[[*KOKUYU_COLUMNS, "geometry"]].rename(columns=KOKUYU_COLUMNS)
     return gpd.GeoDataFrame(out, geometry="geometry", crs=df.crs)
 
@@ -170,16 +197,20 @@ def build(key: str) -> Path:
         known = ", ".join(config["prefs"])
         raise SystemExit(f"unknown prefecture key '{key}'. Known: {known} (see prefs_config.json)")
     pref = config["prefs"][key]
-    west, south, east, north = (float(v) for v in pref["bbox"])
-    bbox: BBox = (west, south, east, north)
+    code = str(pref["code"])
     block = pref["block"]
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     gpkg = download_file(config["blocks"][block], CACHE / "blocks" / f"veg2024{block}.gpkg")
-    print(f"reading vegetation within {bbox} ...", flush=True)
+    crs = pyogrio.read_info(gpkg)["crs"]
+    boundary = read_pref_boundary(code, crs)
+    west, south, east, north = (float(v) for v in shapely.bounds(boundary))
+    bbox: BBox = (west, south, east, north)
+    print(f"reading vegetation within {pref['name']} {bbox} ...", flush=True)
     raw = pyogrio.read_dataframe(gpkg, bbox=bbox, columns=list(VEG_COLUMNS))
-    veg = select_veg_columns(raw)
-    print(f"  {len(veg)} polygons", flush=True)
+    veg = keep_inside(select_veg_columns(raw), boundary)
+    del raw
+    print(f"  {len(veg)} polygons inside the prefecture", flush=True)
 
     mosaic = build_mosaic(bbox, CACHE / "dem")
     veg = add_elevation(veg, mosaic)
@@ -188,7 +219,7 @@ def build(key: str) -> Path:
     print(f"writing {veg_path.name} ...", flush=True)
     write_pmtiles(veg, veg_path, "veg", "現存植生図2024(環境省生物多様性センター)を加工")
 
-    kokuyu = read_kokuyu(pref["kokuyu_code"])
+    kokuyu = read_kokuyu(code)
     kokuyu_path = OUT_DIR / f"{key}_kokuyu.pmtiles"
     print(f"writing {kokuyu_path.name} ({len(kokuyu)} polygons) ...", flush=True)
     write_pmtiles(kokuyu, kokuyu_path, "kokuyu", "国土数値情報(国有林野データ)を加工")
@@ -196,7 +227,7 @@ def build(key: str) -> Path:
     entry = {
         "key": key,
         "name": pref["name"],
-        "bbox": list(bbox),
+        "bbox": [round(v, 4) for v in bbox],
         "veg": veg_path.name,
         "vegBytes": veg_path.stat().st_size,
         "kokuyu": kokuyu_path.name,

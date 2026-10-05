@@ -49,6 +49,7 @@ const ATTRIBUTION = [
   '<a href="https://www.geospatial.jp/ckan/dataset/biodic_veg2024" target="_blank">「現存植生図2024」(環境省生物多様性センター)</a>を加工して作成',
   '<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank">「国土数値情報（国有林野データ）」(国土交通省)</a>をもとに作成',
   '標高: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル（標高タイル）</a>を加工',
+  '県境: <a href="https://nlftp.mlit.go.jp/ksj/" target="_blank">「国土数値情報（行政区域データ）」(国土交通省)</a>をもとに作成',
 ];
 
 function featureHtml(features: MapGeoJSONFeature[]): HTMLElement {

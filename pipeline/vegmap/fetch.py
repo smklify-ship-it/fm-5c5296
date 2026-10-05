@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 USER_AGENT = "veg-map-pipeline/1.0 (personal mushroom-hunting map)"
-RETRIES = 3
+RETRIES = 5
 RETRY_WAIT_S = 3.0
 CHUNK = 1024 * 1024
 
@@ -65,7 +65,9 @@ def fetch_bytes_cached(url: str, cache_path: Path, interval_s: float) -> bytes |
                 time.sleep(interval_s)
                 return None
             last_error = e
-        except (urllib.error.URLError, TimeoutError) as e:
+        except OSError as e:
+            # URLError, timeouts and connection resets (WinError 10054 seen from the GSI server
+            # mid-run) are all OSError; any of them is worth a retry.
             last_error = e
         print(f"  retry {attempt}/{RETRIES} for {url}: {last_error}", file=sys.stderr)
         time.sleep(RETRY_WAIT_S * attempt)

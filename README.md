@@ -20,9 +20,10 @@ PC と Android の同じアプリで使え、出発前に保存しておけば**
 
 ## 県を追加する／データを作り直す
 
-1. `pipeline\prefs_config.json` の `prefs` に県を追記（`bbox` = 西,南,東,北、`block` = 植生図の地域ブロック、`kokuyu_code` = 都道府県コード）
+1. `pipeline\prefs_config.json` の `prefs` に県を追記（`code` = 都道府県コード2桁、`block` = その県を含む植生図の地域ブロック）
 2. `build-pref.bat <キー>`（例 `build-pref.bat nagano`）をダブルクリック or 実行
-   - 初回は地域ブロックの植生 GPKG（0.5〜1GB）と標高タイル（約1,000枚）を自動ダウンロードする。2回目以降は `pipeline\cache\` を再利用
+   - 初回は地域ブロックの植生 GPKG（0.5〜1GB）・県境・国有林・標高タイル（約1,000〜3,000枚）を自動ダウンロードする。2回目以降は `pipeline\cache\` を再利用（GPKG は消してもよい。次回また自動で取り直す）
+   - 県境（行政区域）で切り出す。県境をまたぐ区画は中心がある県だけに入るので、隣県を両方保存しても重ならない
 3. `web\public\data\` に `<キー>.pmtiles` `<キー>_kokuyu.pmtiles` `prefs.json` ができる
 
 必要なもの: [uv](https://docs.astral.sh/uv/)（Python）、Node.js＋pnpm（アプリのビルド）。
@@ -47,5 +48,6 @@ PC と Android の同じアプリで使え、出発前に保存しておけば**
 - 国有林: 「国土数値情報（国有林野データ）」（国土交通省）https://nlftp.mlit.go.jp/ksj/ をもとに作成（原典: 林野庁 国有林GIS、2018年4月1日時点、CC BY 4.0）
 - 背景地図: 国土地理院最適化ベクトルタイル（試験公開）https://github.com/gsi-cyberjapan/optimal_bvmap
 - 標高: 地理院タイル（標高タイル）https://maps.gsi.go.jp/development/ichiran.html を加工
+- 県境: 「国土数値情報（行政区域データ）」（国土交通省）https://nlftp.mlit.go.jp/ksj/ をもとに作成（2025年1月1日時点）
 
 国有林の入林・採取ルールは各森林管理署に確認すること。このアプリは植生の目安を示すだけで、キノコの発生や食毒を保証しない。

@@ -1,22 +1,15 @@
 {
-  "_comment": "Add a prefecture here, then run build-pref.bat <key>. bbox = [west, south, east, north] (degrees).",
+  "_comment": "Add a prefecture here, then run build-pref.bat <key>. code = JIS prefecture code (2 digits); block = vegetation GPKG block that covers it.",
   "blocks": {
     "bk3": "https://www.geospatial.jp/ckan/dataset/a29def39-8ac8-48d8-8d81-f9504ae0ff71/resource/3be59af1-7c1e-4ede-822c-0021137427a7/download/veg2024bk3.gpkg",
     "bk4": "https://www.geospatial.jp/ckan/dataset/a29def39-8ac8-48d8-8d81-f9504ae0ff71/resource/8068020a-9f57-4545-82d0-971b29734dee/download/veg2024bk4.gpkg",
     "bk5": "https://www.geospatial.jp/ckan/dataset/a29def39-8ac8-48d8-8d81-f9504ae0ff71/resource/28e3bf50-76a9-46db-b11f-85a159991941/download/veg2024bk5.gpkg"
   },
   "prefs": {
-    "gunma": {
-      "name": "群馬県",
-      "bbox": [138.39, 35.98, 139.68, 37.06],
-      "block": "bk3",
-      "kokuyu_code": "10"
-    },
-    "nagano": {
-      "name": "長野県",
-      "bbox": [137.32, 35.19, 138.74, 37.03],
-      "block": "bk5",
-      "kokuyu_code": "20"
-    }
+    "gunma": { "name": "群馬県", "code": "10", "block": "bk3" },
+    "saitama": { "name": "埼玉県", "code": "11", "block": "bk3" },
+    "niigata": { "name": "新潟県", "code": "15", "block": "bk4" },
+    "yamanashi": { "name": "山梨県", "code": "19", "block": "bk5" },
+    "nagano": { "name": "長野県", "code": "20", "block": "bk5" }
   }
 }
