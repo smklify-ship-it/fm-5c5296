@@ -126,3 +126,28 @@ export function elevationBandColor(elev: ElevationRange): ExpressionSpecificatio
     outside,
   ];
 }
+
+/**
+ * Border polygons are stored whole in every prefecture they touch, tagged with their owner
+ * ("o" = the prefecture holding their centre). Show a polygon from `key`'s file when `key`
+ * owns it, or when its owner's file is not on the device; otherwise the owner's copy is
+ * drawn and this one would double-paint. Files built before ownership existed have no "o"
+ * and stay visible.
+ */
+export function ownerFilter(key: string, attachedKeys: string[]): ExpressionSpecification {
+  return [
+    'any',
+    ['==', ['get', 'o'], key],
+    ['!', ['in', ['coalesce', ['get', 'o'], ''], ['literal', attachedKeys]]],
+  ];
+}
+
+/** Combine the ownership rule with a layer filter (null = ownership only). */
+export function withOwner(
+  filter: FilterSpecification | null,
+  key: string,
+  attachedKeys: string[],
+): FilterSpecification {
+  const owner = ownerFilter(key, attachedKeys);
+  return filter ? ['all', owner, filter as ExpressionSpecification] : owner;
+}

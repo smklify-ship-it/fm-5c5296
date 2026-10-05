@@ -100,3 +100,9 @@ function txDone(tx: IDBTransaction): Promise<void> {
     tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
   });
 }
+
+export async function dbKeys(store: StoreName): Promise<string[]> {
+  const db = await openDb();
+  const req = db.transaction(store, 'readonly').objectStore(store).getAllKeys();
+  return (await requestToPromise(req)).map(String);
+}

@@ -3,7 +3,14 @@ import pandas as pd
 import pytest
 import shapely
 
-from vegmap.build import keep_inside, select_veg_columns, summarize_legends
+from vegmap.build import (
+    SRC_FID,
+    UNKNOWN_OWNER,
+    assign_owners,
+    merge_extracts,
+    select_veg_columns,
+    summarize_legends,
+)
 
 
 def _raw() -> gpd.GeoDataFrame:
@@ -69,17 +76,58 @@ def _grid() -> gpd.GeoDataFrame:
     )
 
 
-def test_keep_inside_drops_polygons_outside_the_prefecture() -> None:
-    inside = keep_inside(_grid(), shapely.box(-1, -1, 1.6, 2))
-    assert inside["c"].tolist() == [1, 2]  # square 3 lies wholly outside
+WEST = shapely.box(-1, -1, 1.6, 2)
+EAST = shapely.box(1.6, -1, 5, 2)
 
 
-def test_keep_inside_border_polygon_goes_to_exactly_one_side() -> None:
-    west = keep_inside(_grid(), shapely.box(-1, -1, 1.6, 2))["c"].tolist()
-    east = keep_inside(_grid(), shapely.box(1.6, -1, 5, 2))["c"].tolist()
-    assert sorted(west + east) == [1, 2, 3]
+def test_assign_owners_drops_polygons_not_touching_the_prefecture() -> None:
+    assert assign_owners(_grid(), WEST, "w", {})["c"].tolist() == [1, 2]
 
 
-def test_keep_inside_keeps_border_polygon_whole() -> None:
-    east = keep_inside(_grid(), shapely.box(1.4, -1, 5, 2))
-    assert east.geometry.iloc[0].equals(shapely.box(1, 0, 2, 1))
+def test_assign_owners_border_polygon_is_in_both_prefecture_files() -> None:
+    west = assign_owners(_grid(), WEST, "w", {"e": EAST})["c"].tolist()
+    east = assign_owners(_grid(), EAST, "e", {"w": WEST})["c"].tolist()
+    assert 2 in west and 2 in east
+
+
+def test_assign_owners_owner_is_the_prefecture_holding_the_centre() -> None:
+    east = assign_owners(_grid(), EAST, "e", {"w": WEST})
+    assert east.set_index("c").loc[2, "o"] == "w"
+
+
+def test_assign_owners_border_polygon_has_the_same_owner_in_both_files() -> None:
+    west = assign_owners(_grid(), WEST, "w", {"e": EAST}).set_index("c")
+    east = assign_owners(_grid(), EAST, "e", {"w": WEST}).set_index("c")
+    assert west.loc[2, "o"] == east.loc[2, "o"]
+
+
+def test_assign_owners_unknown_when_centre_is_in_an_unbuilt_prefecture() -> None:
+    east = assign_owners(_grid(), EAST, "e", {})
+    assert east.set_index("c").loc[2, "o"] == UNKNOWN_OWNER
+
+
+def test_assign_owners_keeps_border_polygon_whole() -> None:
+    east = assign_owners(_grid(), EAST, "e", {"w": WEST}).set_index("c")
+    assert east.loc[2, "geometry"].equals(shapely.box(1, 0, 2, 1))
+
+
+def _extract(fids: list[int]) -> gpd.GeoDataFrame:
+    return gpd.GeoDataFrame(
+        {SRC_FID: fids, "凡例コード": ["410101"] * len(fids)},
+        geometry=[shapely.box(i, 0, i + 1, 1) for i in range(len(fids))],
+        crs="EPSG:6668",
+    )
+
+
+def test_merge_extracts_keeps_one_copy_of_a_polygon_in_two_blocks() -> None:
+    merged = merge_extracts([_extract([1, 2]), _extract([2, 3])])
+    assert sorted(merged[SRC_FID].tolist()) == [1, 2, 3]
+
+
+def test_merge_extracts_skips_empty_blocks() -> None:
+    assert len(merge_extracts([_extract([]), _extract([7])])) == 1
+
+
+def test_merge_extracts_with_nothing_found_raises() -> None:
+    with pytest.raises(ValueError):
+        merge_extracts([_extract([])])

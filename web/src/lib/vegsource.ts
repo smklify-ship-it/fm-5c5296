@@ -5,7 +5,7 @@
  */
 import { FileSource, PMTiles, Protocol } from 'pmtiles';
 import { addProtocol, type AddProtocolAction } from 'maplibre-gl';
-import { dbDelete, dbGet, dbPut, STORES } from './db';
+import { dbDelete, dbGet, dbKeys, dbPut, STORES } from './db';
 import type { PrefEntry, PrefIndex } from './types';
 
 const protocol = new Protocol();
@@ -36,6 +36,8 @@ export async function fetchPrefIndex(): Promise<PrefIndex> {
     if (!res.ok) throw new Error(`prefs.json load failed: HTTP ${res.status}`);
     const index = (await res.json()) as PrefIndex;
     await dbPut(STORES.files, INDEX_KEY, index);
+    // Only a fresh network index may delete files; the offline copy could be outdated.
+    await pruneStaleFiles(index).catch((e: unknown) => console.warn('stale file cleanup failed', e));
     return index;
   } catch (e) {
     const saved = await dbGet<PrefIndex>(STORES.files, INDEX_KEY);
@@ -133,4 +135,25 @@ export async function attachPref(entry: PrefEntry): Promise<{ veg: string; kokuy
     urls.push(`pmtiles://${file.name}`);
   }
   return { veg: urls[0], kokuyu: urls[1] };
+}
+
+/**
+ * Delete stored prefecture files that the current index no longer lists (older builds of a
+ * rebuilt prefecture, or a removed one), so re-saving after a rebuild does not leave tens of
+ * MB behind on the device.
+ */
+async function pruneStaleFiles(index: PrefIndex): Promise<void> {
+  const wantedKeys = new Set(
+    index.prefs.flatMap((p) => [storeKey(p.veg, p.built), storeKey(p.kokuyu, p.built)]),
+  );
+  const wantedUrls = new Set(
+    index.prefs.flatMap((p) => [cacheUrl(p.veg, p.built), cacheUrl(p.kokuyu, p.built)]),
+  );
+  const cache = await caches.open(FILE_CACHE);
+  for (const req of await cache.keys()) {
+    if (!wantedUrls.has(req.url)) await cache.delete(req);
+  }
+  for (const key of await dbKeys(STORES.files)) {
+    if (key !== INDEX_KEY && !wantedKeys.has(key)) await dbDelete(STORES.files, key);
+  }
 }

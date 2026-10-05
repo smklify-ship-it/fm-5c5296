@@ -19,22 +19,47 @@ def _request(url: str) -> urllib.request.Request:
     return urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
 
 
+def _download_once(url: str, part: Path) -> None:
+    """Append the rest of `url` to `part`, resuming with an HTTP Range request."""
+    have = part.stat().st_size if part.exists() else 0
+    req = _request(url)
+    if have:
+        req.add_header("Range", f"bytes={have}-")
+    with urllib.request.urlopen(req, timeout=60) as res:
+        resumed = have > 0 and res.status == 206
+        if have and not resumed:
+            have = 0  # server ignored Range: start over
+        total = have + int(res.headers.get("Content-Length") or 0)
+        with part.open("ab" if resumed else "wb") as out:
+            done = have
+            while chunk := res.read(CHUNK):
+                out.write(chunk)
+                done += len(chunk)
+                if total:
+                    print(f"\r  {done / total:6.1%} of {total / 1e6:.0f} MB", end="", flush=True)
+    print()
+
+
 def download_file(url: str, dest: Path) -> Path:
-    """Download `url` to `dest` once; later calls reuse the file."""
+    """Download `url` to `dest` once; later calls reuse the file.
+
+    Large block GPKGs (~1 GB) occasionally stall mid-transfer (read timeout seen on the
+    Tohoku block), so each failure resumes from the bytes already on disk.
+    """
     if dest.exists():
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_suffix(dest.suffix + ".part")
     print(f"downloading {dest.name} ...", flush=True)
-    with urllib.request.urlopen(_request(url), timeout=60) as res, part.open("wb") as out:
-        total = int(res.headers.get("Content-Length") or 0)
-        done = 0
-        while chunk := res.read(CHUNK):
-            out.write(chunk)
-            done += len(chunk)
-            if total:
-                print(f"\r  {done / total:6.1%} of {total / 1e6:.0f} MB", end="", flush=True)
-    print()
+    for attempt in range(1, RETRIES + 1):
+        try:
+            _download_once(url, part)
+            break
+        except OSError as e:
+            if attempt == RETRIES:
+                raise RuntimeError(f"failed to download {url} after {RETRIES} attempts") from e
+            print(f"\n  retry {attempt}/{RETRIES} (resuming): {e}", file=sys.stderr, flush=True)
+            time.sleep(RETRY_WAIT_S * attempt)
     shutil.move(part, dest)
     return dest
 

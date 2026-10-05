@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ELEV_HIGHLIGHT_COLOR, ELEV_MASK_COLOR, elevationBandColor, nextColor, nextFreeColor, PALETTE, UNSELECTED_COLOR, vegColor, vegFilter, visibleSelections } from './style';
+import { ELEV_HIGHLIGHT_COLOR, ELEV_MASK_COLOR, elevationBandColor, nextColor, nextFreeColor, ownerFilter, PALETTE, withOwner, UNSELECTED_COLOR, vegColor, vegFilter, visibleSelections } from './style';
 
 const off = { enabled: false, min: 1000, max: 1600 };
 const on = { enabled: true, min: 1000, max: 1600 };
@@ -133,5 +133,24 @@ describe('vegFilter with group bands', () => {
       off,
     ) as unknown[];
     expect(f[1]).toEqual(['in', ['get', 'c'], ['literal', [1, 2]]]);
+  });
+});
+
+describe('ownerFilter', () => {
+  it('shows own polygons and polygons whose owner is not stored', () => {
+    expect(ownerFilter('gunma', ['gunma', 'nagano'])).toEqual([
+      'any',
+      ['==', ['get', 'o'], 'gunma'],
+      ['!', ['in', ['coalesce', ['get', 'o'], ''], ['literal', ['gunma', 'nagano']]]],
+    ]);
+  });
+
+  it('withOwner wraps a selection filter with the ownership rule', () => {
+    const f = withOwner(['in', ['get', 'c'], ['literal', [1]]], 'gunma', ['gunma']) as unknown[];
+    expect([f[0], f[2]]).toEqual(['all', ['in', ['get', 'c'], ['literal', [1]]]]);
+  });
+
+  it('withOwner without a selection filter is the ownership rule alone', () => {
+    expect(withOwner(null, 'gunma', ['gunma'])).toEqual(ownerFilter('gunma', ['gunma']));
   });
 });

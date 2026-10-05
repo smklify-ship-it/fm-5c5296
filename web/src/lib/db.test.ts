@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { dbAll, dbClear, dbDelete, dbGet, dbHasKey, dbPut, dbPutMany, resetDbForTests, STORES } from './db';
+import { dbAll, dbClear, dbDelete, dbGet, dbHasKey, dbKeys, dbPut, dbPutMany, resetDbForTests, STORES } from './db';
 
 beforeEach(async () => {
   resetDbForTests();
@@ -30,5 +30,11 @@ describe('db', () => {
 
   it('missing key reads as undefined', async () => {
     expect(await dbGet(STORES.memos, 'nope')).toBeUndefined();
+  });
+
+  it('lists stored keys', async () => {
+    await dbPut(STORES.memos, 'a', 1);
+    await dbPut(STORES.memos, 'b', 2);
+    expect((await dbKeys(STORES.memos)).sort()).toEqual(['a', 'b']);
   });
 });

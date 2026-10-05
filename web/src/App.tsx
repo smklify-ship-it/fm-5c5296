@@ -182,6 +182,10 @@ export default function App() {
         attributionControl: false,
       });
       mapRef.current = map;
+      // ?debug exposes the map to browser tests (layer/feature checks); never set otherwise.
+      if (new URLSearchParams(location.search).has('debug')) {
+        (window as unknown as { __map?: MlMap }).__map = map;
+      }
       map.addControl(new AttributionControl({ compact: true, customAttribution: ATTRIBUTION }));
       map.addControl(new NavigationControl({ showCompass: true }), 'top-right');
       map.addControl(
@@ -287,7 +291,7 @@ export default function App() {
     const map = mapRef.current;
     if (!mapReady || !map) return;
     for (const key of attached) {
-      applyVegStyle(map, key, mapSelection, elev);
+      applyVegStyle(map, key, mapSelection, elev, [...attached]);
       applyKokuyuVisibility(map, key, showKokuyu);
     }
   }, [mapReady, attached, mapSelection, elev, showKokuyu]);

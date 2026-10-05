@@ -1,5 +1,5 @@
 @echo off
-rem Build vegetation tiles for one prefecture. Usage: build-pref.bat gunma
+rem Build vegetation tiles. Usage: build-pref.bat gunma   (or: build-pref.bat all)
 rem Output: web\public\data\<key>.pmtiles, <key>_kokuyu.pmtiles, prefs.json
 rem Prefectures are listed in pipeline\prefs_config.json
 setlocal
@@ -12,7 +12,7 @@ if errorlevel 1 (
   exit /b 1
 )
 set "PREF=%~1"
-if "%PREF%"=="" set /p "PREF=Prefecture key (gunma / nagano): "
+if "%PREF%"=="" set /p "PREF=Prefecture key (e.g. gunma) or all: "
 uv run python -m vegmap.build %PREF%
 if errorlevel 1 (
   echo.

@@ -119,16 +119,37 @@ def summarize_legends(df: pd.DataFrame) -> list[dict[str, Any]]:
     return legends
 
 
-def keep_inside(df: gpd.GeoDataFrame, boundary: shapely.Geometry) -> gpd.GeoDataFrame:
-    """Polygons whose representative point lies inside `boundary` (same CRS).
+UNKNOWN_OWNER = "-"
 
-    Border polygons are kept whole and go to exactly one prefecture, so neighbouring
-    prefecture files neither overlap (double-painted colours) nor leave gaps.
+
+def assign_owners(
+    df: gpd.GeoDataFrame,
+    boundary: shapely.Geometry,
+    key: str,
+    others: dict[str, shapely.Geometry],
+) -> gpd.GeoDataFrame:
+    """Every polygon touching the prefecture, kept whole, with its owner in column "o".
+
+    Owner = the prefecture containing the polygon's representative point: `key`, one of the
+    other configured prefectures, or UNKNOWN_OWNER. The file alone covers the prefecture up
+    to (and across) its border; the app hides a borrowed polygon when its owner's file is
+    also on the device, so stored neighbours never double-paint.
     """
-    points = df.geometry.representative_point()
     shapely.prepare(boundary)
-    mask = shapely.contains_xy(boundary, points.x.to_numpy(), points.y.to_numpy())
-    return df[mask].reset_index(drop=True)
+    touching = df[shapely.intersects(boundary, df.geometry.to_numpy())].reset_index(drop=True)
+    points = touching.geometry.representative_point()
+    xs, ys = points.x.to_numpy(), points.y.to_numpy()
+    owner = np.where(shapely.contains_xy(boundary, xs, ys), key, UNKNOWN_OWNER).astype(object)
+    for other_key, other in others.items():
+        undecided = owner == UNKNOWN_OWNER
+        if not undecided.any():
+            break
+        shapely.prepare(other)
+        hit = shapely.contains_xy(other, xs[undecided], ys[undecided])
+        owner[np.flatnonzero(undecided)[hit]] = other_key
+    out = touching.copy()
+    out["o"] = owner.astype(str)
+    return out
 
 
 def _read_shp_from_zip(zip_path: Path) -> gpd.GeoDataFrame:
@@ -191,6 +212,84 @@ def update_index(entry: dict[str, Any]) -> Path:
     return index_path
 
 
+# Every veg2024 block GPKG is JGD2011 geographic.
+VEG_CRS = "EPSG:6668"
+EXTRACT_DIR = CACHE / "extract"
+# Column keeping the national feature id; GPKG rewrites its own FID on write.
+SRC_FID = "src_fid"
+
+
+def _extract_path(key: str, block: str) -> Path:
+    return EXTRACT_DIR / key / f"{block}.gpkg"
+
+
+def _extract_marker(key: str, block: str) -> Path:
+    # Written even when the block holds nothing for this prefecture, so it is not re-read.
+    return EXTRACT_DIR / key / f"{block}.done"
+
+
+def merge_extracts(frames: list[gpd.GeoDataFrame]) -> gpd.GeoDataFrame:
+    """Concatenate per-block extracts, keeping one copy of a polygon present in two blocks.
+
+    The vegetation map is split into blocks by map sheet, not by prefecture, so a
+    prefecture's border area can sit in a neighbouring block (seen: Nagano's side of
+    Torii-toge is only in the Kanto block). feature ids are national, so they dedupe.
+    """
+    non_empty = [f for f in frames if len(f) > 0]
+    if not non_empty:
+        raise ValueError("no vegetation polygons found in any block for this prefecture")
+    merged = gpd.GeoDataFrame(pd.concat(non_empty, ignore_index=True), crs=non_empty[0].crs)
+    return merged.drop_duplicates(subset=SRC_FID).reset_index(drop=True)
+
+
+def extract_block(block: str, keys: list[str], config: dict[str, Any]) -> None:
+    """Download one block and save, per prefecture, the polygons touching it; then delete it.
+
+    Only one ~1 GB block is on disk at a time (the dev PC has ~3 GB free).
+    """
+    gpkg = download_file(config["blocks"][block], CACHE / "blocks" / f"veg2024{block}.gpkg")
+    try:
+        for key in keys:
+            boundary = read_pref_boundary(str(config["prefs"][key]["code"]), VEG_CRS)
+            raw = pyogrio.read_dataframe(
+                gpkg,
+                bbox=tuple(shapely.bounds(boundary)),
+                columns=list(VEG_COLUMNS),
+                fid_as_index=True,
+            )
+            shapely.prepare(boundary)
+            raw = raw[shapely.intersects(boundary, raw.geometry.to_numpy())]
+            out = _extract_path(key, block)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            if len(raw) > 0:
+                frame = raw.reset_index(names=SRC_FID)
+                frame.to_file(out, driver="GPKG", engine="pyogrio")
+            _extract_marker(key, block).touch()
+            print(f"  {block} -> {key}: {len(raw)} polygons", flush=True)
+    finally:
+        gpkg.unlink(missing_ok=True)
+        print(f"deleted {gpkg.name}", flush=True)
+
+
+def ensure_extracts(config: dict[str, Any]) -> None:
+    """Extract every block for every configured prefecture that has not been extracted yet."""
+    keys = list(config["prefs"])
+    for block in config["blocks"]:
+        missing = [k for k in keys if not _extract_marker(k, block).exists()]
+        if missing:
+            print(f"block {block}: extracting for {', '.join(missing)}", flush=True)
+            extract_block(block, missing, config)
+
+
+def load_extracts(key: str, config: dict[str, Any]) -> gpd.GeoDataFrame:
+    frames = [
+        pyogrio.read_dataframe(_extract_path(key, b))
+        for b in config["blocks"]
+        if _extract_path(key, b).exists()
+    ]
+    return merge_extracts(frames)
+
+
 def build(key: str) -> Path:
     config = load_config()
     if key not in config["prefs"]:
@@ -198,21 +297,29 @@ def build(key: str) -> Path:
         raise SystemExit(f"unknown prefecture key '{key}'. Known: {known} (see prefs_config.json)")
     pref = config["prefs"][key]
     code = str(pref["code"])
-    block = pref["block"]
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    gpkg = download_file(config["blocks"][block], CACHE / "blocks" / f"veg2024{block}.gpkg")
-    crs = pyogrio.read_info(gpkg)["crs"]
-    boundary = read_pref_boundary(code, crs)
+    ensure_extracts(config)
+    boundary = read_pref_boundary(code, VEG_CRS)
+    others = {
+        k: read_pref_boundary(str(v["code"]), VEG_CRS)
+        for k, v in config["prefs"].items()
+        if k != key
+    }
     west, south, east, north = (float(v) for v in shapely.bounds(boundary))
     bbox: BBox = (west, south, east, north)
-    print(f"reading vegetation within {pref['name']} {bbox} ...", flush=True)
-    raw = pyogrio.read_dataframe(gpkg, bbox=bbox, columns=list(VEG_COLUMNS))
-    veg = keep_inside(select_veg_columns(raw), boundary)
+    raw = load_extracts(key, config)
+    veg = assign_owners(select_veg_columns(raw), boundary, key, others)
     del raw
-    print(f"  {len(veg)} polygons inside the prefecture", flush=True)
+    borrowed = int((veg["o"] != key).sum())
+    print(
+        f"{pref['name']}: {len(veg)} polygons ({borrowed} across the border, kept whole)",
+        flush=True,
+    )
 
-    mosaic = build_mosaic(bbox, CACHE / "dem")
+    # Border polygons reach outside the prefecture; widen the DEM to cover them entirely.
+    dw, ds, de, dn = (float(v) for v in veg.total_bounds)
+    mosaic = build_mosaic((dw, ds, de, dn), CACHE / "dem")
     veg = add_elevation(veg, mosaic)
 
     veg_path = OUT_DIR / f"{key}.pmtiles"
@@ -244,10 +351,14 @@ def build(key: str) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Build vegetation PMTiles for one prefecture.")
-    parser.add_argument("key", help="prefecture key in prefs_config.json (e.g. gunma)")
+    parser = argparse.ArgumentParser(
+        description="Build vegetation PMTiles. 'all' builds every prefecture in prefs_config.json."
+    )
+    parser.add_argument("key", help="prefecture key in prefs_config.json (e.g. gunma) or 'all'")
     args = parser.parse_args(argv)
-    build(args.key)
+    keys = list(load_config()["prefs"]) if args.key == "all" else [args.key]
+    for key in keys:
+        build(key)
     return 0
 
 
