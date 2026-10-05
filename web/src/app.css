@@ -169,14 +169,14 @@ select {
 }
 
 /* Selected-legend rows carry a remove button beside the label. */
-.results li:has(.remove) {
+.results li:has(> .remove) {
   display: flex;
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid #eeeeee;
 }
 
-.results li:has(.remove) label {
+.results li:has(> .remove) label {
   flex: 1;
   border-bottom: none;
 }
@@ -346,4 +346,89 @@ progress {
 .popup button {
   margin-top: 6px;
   width: 100%;
+}
+
+/* --- colour groups --- */
+.groups > li.group {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+}
+
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+}
+
+.group-head input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+}
+
+/* Native colour input shown as a tappable swatch. */
+.color-pick {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgb(0 0 0 / 25%);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.group-name {
+  flex: 1;
+  text-align: left;
+  border: none;
+  background: none;
+  font-weight: bold;
+  font-size: 15px;
+  padding: 6px 0;
+}
+
+.group-name-edit {
+  flex: 1;
+  font-size: 16px;
+  padding: 6px;
+  border: 1px solid #bbbbbb;
+  border-radius: 6px;
+}
+
+button.icon {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 4px;
+}
+
+.group.is-hidden .group-name,
+.group.is-hidden .color-pick {
+  opacity: 0.4;
+}
+
+.results.members {
+  margin: 0 0 4px 12px;
+}
+
+select.move {
+  max-width: 5.5em;
+  font-size: 13px;
+  padding: 4px;
+  margin: 0;
+}
+
+.target {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.target select {
+  margin-left: 0;
+  font-size: 14px;
+  padding: 4px;
+  max-width: 11em;
 }

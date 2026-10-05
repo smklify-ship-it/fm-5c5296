@@ -25,7 +25,7 @@ import {
 } from './lib/mapLayers';
 import { mergeLegends } from './lib/search';
 import { loadSetting, saveSetting } from './lib/settings';
-import { nextColor, type Selection } from './lib/style';
+import * as G from './lib/groups';
 import type { BBox, ElevationRange, Memo, PrefEntry } from './lib/types';
 import { attachPref, fetchPrefIndex, isPrefStored, removePref, storePref } from './lib/vegsource';
 
@@ -90,7 +90,10 @@ export default function App() {
   const [attached, setAttached] = useState<Set<string>>(new Set());
   const [busyPref, setBusyPref] = useState<{ key: string; received: number; total: number } | null>(null);
 
-  const [selected, setSelected] = useState<Selection[]>(() => loadSetting('selected', []));
+  // Selections and colour groups live in one state so a move between them is atomic.
+  const [sel, setSel] = useState<G.SelectionState>(() =>
+    G.normalize({ selected: loadSetting('selected', []), groups: loadSetting('groups', []) }),
+  );
   const [elev, setElev] = useState<ElevationRange>(() => loadSetting('elev', DEFAULT_ELEV));
   const [showKokuyu, setShowKokuyu] = useState<boolean>(() => loadSetting('kokuyu', false));
   const [memos, setMemos] = useState<Memo[]>([]);
@@ -98,7 +101,10 @@ export default function App() {
   const [viewBbox, setViewBbox] = useState<BBox | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
 
-  useEffect(() => saveSetting('selected', selected), [selected]);
+  useEffect(() => {
+    saveSetting('selected', sel.selected);
+    saveSetting('groups', sel.groups);
+  }, [sel]);
   useEffect(() => saveSetting('elev', elev), [elev]);
   useEffect(() => saveSetting('kokuyu', showKokuyu), [showKokuyu]);
 
@@ -115,32 +121,14 @@ export default function App() {
   const storedPrefs = useMemo(() => prefs.filter((p) => stored.has(p.key)), [prefs, stored]);
   const legends = useMemo(() => mergeLegends(storedPrefs), [storedPrefs]);
 
-  const toggleCode = useCallback((code: number) => {
-    setSelected((cur) =>
-      cur.some((s) => s.code === code)
-        ? cur.filter((s) => s.code !== code)
-        : [...cur, { code, color: nextColor(cur) }],
-    );
+  const updateSel = useCallback((fn: (cur: G.SelectionState) => G.SelectionState) => {
+    setSel(fn);
   }, []);
-
-  const selectMany = useCallback((codes: number[]) => {
-    setSelected((cur) => {
-      const next = [...cur];
-      for (const code of codes) {
-        if (!next.some((s) => s.code === code)) next.push({ code, color: nextColor(next) });
-      }
-      return next;
-    });
-  }, []);
-
-  // Hiding keeps the selection and its colour, so it can be shown again with one tap.
-  const setHidden = useCallback((code: number, hidden: boolean) => {
-    setSelected((cur) => cur.map((s) => (s.code === code ? { ...s, hidden } : s)));
-  }, []);
-
-  const setAllHidden = useCallback((hidden: boolean) => {
-    setSelected((cur) => cur.map((s) => ({ ...s, hidden })));
-  }, []);
+  const toggleCode = useCallback(
+    (code: number) => updateSel((cur) => G.toggle(cur, code, null)),
+    [updateSel],
+  );
+  const mapSelection = useMemo(() => G.resolveForMap(sel), [sel]);
 
   // --- map bootstrap -------------------------------------------------------
   useEffect(() => {
@@ -252,10 +240,10 @@ export default function App() {
     const map = mapRef.current;
     if (!mapReady || !map) return;
     for (const key of attached) {
-      applyVegStyle(map, key, selected, elev);
+      applyVegStyle(map, key, mapSelection, elev);
       applyKokuyuVisibility(map, key, showKokuyu);
     }
-  }, [mapReady, attached, selected, elev, showKokuyu]);
+  }, [mapReady, attached, mapSelection, elev, showKokuyu]);
 
   // --- memo markers --------------------------------------------------------
   useEffect(() => {
@@ -317,14 +305,26 @@ export default function App() {
         <div ref={containerRef} className="map" />
         {tab === 'memo' && <div className="crosshair">＋</div>}
         {!online && <div className="badge offline">オフライン</div>}
-        {selected.length > 0 && tab === null && (
+        {sel.selected.length + sel.groups.length > 0 && tab === null && (
           <div className="legend">
-            {selected.map((s) => (
+            {/* Groups collapse to one row each; individual legends follow. */}
+            {sel.groups.map((g) => (
+              <label key={g.id} className={g.hidden ? 'is-hidden' : ''}>
+                <input
+                  type="checkbox"
+                  checked={!g.hidden}
+                  onChange={(e) => updateSel((cur) => G.updateGroup(cur, g.id, { hidden: !e.target.checked }))}
+                />
+                <span className="swatch" style={{ background: g.color }} />
+                {g.name}（{G.membersOf(sel, g.id).length}）
+              </label>
+            ))}
+            {G.individuals(sel).map((s) => (
               <label key={s.code} className={s.hidden ? 'is-hidden' : ''}>
                 <input
                   type="checkbox"
                   checked={!s.hidden}
-                  onChange={(e) => setHidden(s.code, !e.target.checked)}
+                  onChange={(e) => updateSel((cur) => G.setHidden(cur, s.code, !e.target.checked))}
                 />
                 <span className="swatch" style={{ background: s.color }} />
                 {legends.find((l) => l.c === s.code)?.n ?? s.code}
@@ -348,20 +348,12 @@ export default function App() {
           {TABS.map(([t, label]) => (
             <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(tab === t ? null : t)}>
               {label}
-              {t === 'veg' && selected.length > 0 ? `(${selected.length})` : ''}
+              {t === 'veg' && sel.selected.length > 0 ? `(${sel.selected.length})` : ''}
             </button>
           ))}
         </nav>
         {tab === 'veg' && (
-          <SearchPanel
-            legends={legends}
-            selected={selected}
-            onToggle={toggleCode}
-            onSelectMany={selectMany}
-            onSetHidden={setHidden}
-            onSetAllHidden={setAllHidden}
-            onClear={() => setSelected([])}
-          />
+          <SearchPanel legends={legends} sel={sel} onChange={updateSel} />
         )}
         {tab === 'elev' && (
           <ElevationPanel elev={elev} onChange={setElev} showKokuyu={showKokuyu} onShowKokuyu={setShowKokuyu} />

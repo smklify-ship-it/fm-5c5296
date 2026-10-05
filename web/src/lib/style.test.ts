@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextColor, PALETTE, UNSELECTED_COLOR, vegColor, vegFilter, visibleSelections } from './style';
+import { nextColor, nextFreeColor, PALETTE, UNSELECTED_COLOR, vegColor, vegFilter, visibleSelections } from './style';
 
 const off = { enabled: false, min: 1000, max: 1600 };
 const on = { enabled: true, min: 1000, max: 1600 };
@@ -38,6 +38,12 @@ describe('vegFilter', () => {
 describe('visibleSelections', () => {
   it('treats a selection without the hidden flag (older saved data) as visible', () => {
     expect(visibleSelections([{ code: 1, color: '#000' }])).toHaveLength(1);
+  });
+});
+
+describe('nextFreeColor', () => {
+  it('skips colours in use regardless of letter case (colour pickers return lowercase)', () => {
+    expect(nextFreeColor([PALETTE[0].toUpperCase()])).toBe(PALETTE[1]);
   });
 });
 

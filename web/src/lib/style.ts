@@ -29,6 +29,8 @@ export interface Selection {
   color: string;
   // Optional so selections saved before the show/hide toggle existed load as visible.
   hidden?: boolean;
+  // Group id (see groups.ts). Members are painted with the group's colour instead of `color`.
+  group?: string;
 }
 
 export function visibleSelections(selected: Selection[]): Selection[] {
@@ -36,9 +38,14 @@ export function visibleSelections(selected: Selection[]): Selection[] {
 }
 
 export function nextColor(selected: Selection[]): string {
-  const used = new Set(selected.map((s) => s.color));
-  const free = PALETTE.find((c) => !used.has(c));
-  return free ?? colorFor(selected.length);
+  return nextFreeColor(selected.map((s) => s.color));
+}
+
+/** First palette colour not in `used`; cycles the palette once every colour is taken. */
+export function nextFreeColor(used: string[]): string {
+  const taken = new Set(used.map((c) => c.toLowerCase()));
+  const free = PALETTE.find((c) => !taken.has(c));
+  return free ?? colorFor(used.length);
 }
 
 /** Filter for the coloured vegetation layer; null means "nothing to show → hide layer". */
