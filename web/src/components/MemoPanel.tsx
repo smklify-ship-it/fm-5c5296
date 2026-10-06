@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { exportGpx, parseGpx } from '../lib/gpx';
+import { exportFile } from '../lib/share';
 import type { Memo } from '../lib/types';
 
 const GPS_TIMEOUT_MS = 20_000;
@@ -20,40 +21,6 @@ function getPosition(): Promise<GeolocationPosition> {
       maximumAge: 10_000,
     }),
   );
-}
-
-function download(name: string, text: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/gpx+xml' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-/**
- * Phones: hand the file to the share sheet (iPhone: 「ファイルに保存」/AirDrop), because a
- * home-screen web app on iOS cannot save downloads reliably. PCs keep the plain download.
- * Chrome only shares allow-listed MIME types, so text/plain is tried when GPX is refused.
- */
-async function exportFile(name: string, text: string): Promise<'shared' | 'downloaded' | 'cancelled'> {
-  const touch = window.matchMedia('(pointer: coarse)').matches;
-  if (touch && typeof navigator.canShare === 'function') {
-    for (const type of ['application/gpx+xml', 'text/plain']) {
-      const file = new File([text], name, { type });
-      if (!navigator.canShare({ files: [file] })) continue;
-      try {
-        await navigator.share({ files: [file], title: name });
-        return 'shared';
-      } catch (e) {
-        if (e instanceof DOMException && e.name === 'AbortError') return 'cancelled';
-        console.warn('share failed; falling back to download', e);
-        break;
-      }
-    }
-  }
-  download(name, text);
-  return 'downloaded';
 }
 
 export function MemoPanel({ memos, mapCenter, onAdd, onDelete, onJump }: Props) {
@@ -132,7 +99,7 @@ export function MemoPanel({ memos, mapCenter, onAdd, onDelete, onJump }: Props) 
           disabled={memos.length === 0}
           onClick={async () => {
             const name = `kinoko-memo-${new Date().toISOString().slice(0, 10)}.gpx`;
-            const result = await exportFile(name, exportGpx(memos));
+            const result = await exportFile(name, exportGpx(memos), 'application/gpx+xml');
             if (result === 'shared') setStatus('共有しました');
             if (result === 'downloaded') setStatus(`${name} を保存しました`);
           }}

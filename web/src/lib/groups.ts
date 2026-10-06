@@ -19,6 +19,14 @@ export interface Group {
   elev?: [number, number];
   // Fruiting months 1–12, used by "今が旬だけ表示".
   months?: number[];
+  // Last change of name/colour/conditions/members (ms); merges keep the newer group.
+  updatedAt?: number;
+}
+
+/** A deleted group, remembered so the deletion wins over older copies elsewhere. */
+export interface GroupTombstone {
+  id: string;
+  updatedAt: number;
 }
 
 /** Display options that change what drawEntries returns. */
@@ -30,6 +38,7 @@ export interface ViewOptions {
 export interface SelectionState {
   selected: Selection[];
   groups: Group[];
+  tombstones?: GroupTombstone[];
 }
 
 /** null = add as an individual selection; otherwise a group id. */
@@ -73,7 +82,7 @@ export function normalize(state: SelectionState): SelectionState {
     seen.add(key);
     selected.push(fixed);
   }
-  return { groups: state.groups, selected };
+  return { ...state, groups: state.groups, selected };
 }
 
 export function hasEntry(state: SelectionState, code: number, target: Target): boolean {
@@ -133,11 +142,40 @@ export function updateGroup(
 }
 
 /** Deletes the group together with its member entries (the UI confirms first). */
-export function deleteGroup(state: SelectionState, id: string): SelectionState {
+export function deleteGroup(state: SelectionState, id: string, now = Date.now()): SelectionState {
   return {
     groups: state.groups.filter((g) => g.id !== id),
     selected: state.selected.filter((s) => s.group !== id),
+    tombstones: [...(state.tombstones ?? []).filter((t) => t.id !== id), { id, updatedAt: now }],
   };
+}
+
+/** Members of a group as a sorted code list (the group's synced content). */
+export function memberCodes(state: SelectionState, id: string): number[] {
+  return state.selected
+    .filter((s) => s.group === id)
+    .map((s) => s.code)
+    .sort((a, b) => a - b);
+}
+
+function groupContent(state: SelectionState, g: Group): string {
+  return JSON.stringify([g.name, g.color, g.elev ?? null, g.months ?? null, memberCodes(state, g.id)]);
+}
+
+/**
+ * Stamp `updatedAt` on groups whose shared content (name, colour, conditions, members)
+ * changed between `prev` and `next`. Display-only fields (hidden, collapsed) do not count:
+ * they stay per device.
+ */
+export function stampChanged(prev: SelectionState, next: SelectionState, now: number): SelectionState {
+  const before = new Map(prev.groups.map((g) => [g.id, groupContent(prev, g)]));
+  let changed = false;
+  const groups = next.groups.map((g) => {
+    if (before.get(g.id) === groupContent(next, g)) return g;
+    changed = true;
+    return { ...g, updatedAt: now };
+  });
+  return changed ? { ...next, groups } : next;
 }
 
 export function setHidden(
@@ -155,6 +193,7 @@ export function setHidden(
 /** Show/hide everything, groups included, so "すべて表示" really shows everything. */
 export function setAllHidden(state: SelectionState, hidden: boolean): SelectionState {
   return {
+    ...state,
     groups: state.groups.map((g) => ({ ...g, hidden })),
     selected: state.selected.map((s) => ({ ...s, hidden })),
   };

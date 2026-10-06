@@ -19,13 +19,34 @@ interface Props {
   onStorePref: (p: PrefEntry) => void;
   onRemovePref: (p: PrefEntry) => void;
   viewBbox: BBox | null;
+  // Return a status line for the panel; throw with a user-facing message on failure.
+  onExportBackup: () => Promise<string>;
+  onImportBackup: (file: File) => Promise<string>;
 }
 
 function mb(bytes: number): string {
   return `${(bytes / MB).toFixed(1)} MB`;
 }
 
-export function SavePanel({ prefs, stored, busyPref, onStorePref, onRemovePref, viewBbox }: Props) {
+export function SavePanel({
+  prefs,
+  stored,
+  busyPref,
+  onStorePref,
+  onRemovePref,
+  viewBbox,
+  onExportBackup,
+  onImportBackup,
+}: Props) {
+  const [backupStatus, setBackupStatus] = useState('');
+  const backupFileRef = useRef<HTMLInputElement>(null);
+  const runBackup = async (task: () => Promise<string>) => {
+    try {
+      setBackupStatus(await task());
+    } catch (e) {
+      setBackupStatus(e instanceof Error ? e.message : String(e));
+    }
+  };
   const [maxZoom, setMaxZoom] = useState(BASE_MAX_ZOOM);
   const [areas, setAreas] = useState<SavedArea[]>([]);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
@@ -162,6 +183,30 @@ export function SavePanel({ prefs, stored, busyPref, onStorePref, onRemovePref, 
           <button onClick={clearAreas}>保存した背景地図をすべて削除</button>
         </>
       )}
+
+      <h3>③ バックアップ（メモ・グループ）</h3>
+      <p className="hint">
+        発見地点メモ、グループ（群落・色・標高帯・時期）、個別に選んだ群落を1つのファイルに書き出します。
+        読み込みは置き換えではなく統合です（同じものは新しい方を残す）。他の端末のバックアップも読み込めます。
+      </p>
+      <div className="buttons">
+        <button className="primary" onClick={() => void runBackup(onExportBackup)}>
+          書き出す
+        </button>
+        <button onClick={() => backupFileRef.current?.click()}>読み込む</button>
+        <input
+          ref={backupFileRef}
+          type="file"
+          accept=".json,application/json"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void runBackup(() => onImportBackup(f));
+            e.target.value = '';
+          }}
+        />
+      </div>
+      {backupStatus && <p className="hint">{backupStatus}</p>}
       <p className="hint">{usage}</p>
     </div>
   );

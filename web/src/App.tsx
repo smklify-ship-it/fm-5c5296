@@ -14,9 +14,11 @@ import { ElevationPanel } from './components/ElevationPanel';
 import { MemoPanel } from './components/MemoPanel';
 import { SavePanel } from './components/SavePanel';
 import { SearchPanel } from './components/SearchPanel';
+import * as B from './lib/backup';
 import { loadBaseStyle } from './lib/basemap';
+import { exportFile } from './lib/share';
 import { registerPatternFactory } from './lib/patterns';
-import { dbAll, dbDelete, dbPut, STORES } from './lib/db';
+import { dbAll, dbPut, STORES } from './lib/db';
 import {
   addElevationLayer,
   addPrefLayers,
@@ -105,7 +107,11 @@ export default function App() {
 
   // Selections and colour groups live in one state so a move between them is atomic.
   const [sel, setSel] = useState<G.SelectionState>(() =>
-    G.normalize({ selected: loadSetting('selected', []), groups: loadSetting('groups', []) }),
+    G.normalize({
+      selected: loadSetting('selected', []),
+      groups: loadSetting('groups', []),
+      tombstones: loadSetting('groupTombstones', []),
+    }),
   );
   const [elev, setElev] = useState<ElevationRange>(() => loadSetting('elev', DEFAULT_ELEV));
   const [showKokuyu, setShowKokuyu] = useState<boolean>(() => loadSetting('kokuyu', false));
@@ -113,6 +119,8 @@ export default function App() {
   // Group whose band drives the terrain mask/highlight (only one band can shade the terrain).
   const [focus, setFocus] = useState<string | null>(() => loadSetting('focus', null));
   const [memos, setMemos] = useState<Memo[]>([]);
+  // Deleted memos are kept as tombstones (see deleteMemo); only live ones are shown.
+  const liveMemos = useMemo(() => memos.filter((m) => !m.deleted), [memos]);
   const [tab, setTab] = useState<Tab | null>(null);
   const [sheetSize, setSheetSize] = useState<SheetSize>(() => loadSetting('sheetSize', 'm'));
   const [viewBbox, setViewBbox] = useState<BBox | null>(null);
@@ -121,6 +129,7 @@ export default function App() {
   useEffect(() => {
     saveSetting('selected', sel.selected);
     saveSetting('groups', sel.groups);
+    saveSetting('groupTombstones', sel.tombstones ?? []);
   }, [sel]);
   useEffect(() => saveSetting('elev', elev), [elev]);
   useEffect(() => saveSetting('kokuyu', showKokuyu), [showKokuyu]);
@@ -141,8 +150,10 @@ export default function App() {
   const storedPrefs = useMemo(() => prefs.filter((p) => stored.has(p.key)), [prefs, stored]);
   const legends = useMemo(() => mergeLegends(storedPrefs), [storedPrefs]);
 
+  // Every change stamps groups whose shared content changed, so merges and sync keep the
+  // newest version.
   const updateSel = useCallback((fn: (cur: G.SelectionState) => G.SelectionState) => {
-    setSel(fn);
+    setSel((cur) => G.stampChanged(cur, fn(cur), Date.now()));
   }, []);
   const toggleCode = useCallback(
     (code: number) => updateSel((cur) => G.toggle(cur, code, null)),
@@ -310,14 +321,14 @@ export default function App() {
   useEffect(() => {
     const map = mapRef.current;
     if (!mapReady || !map) return;
-    const markers = memos.map((m) => {
+    const markers = liveMemos.map((m) => {
       const popup = new Popup({ offset: 24 }).setText(
         `${new Date(m.time).toLocaleString('ja-JP')}\n${m.text}`,
       );
       return new Marker({ color: '#c0392b' }).setLngLat([m.lon, m.lat]).setPopup(popup).addTo(map);
     });
     return () => markers.forEach((mk) => mk.remove());
-  }, [mapReady, memos]);
+  }, [mapReady, liveMemos]);
 
   const onStorePref = async (p: PrefEntry) => {
     setBusyPref({ key: p.key, received: 0, total: p.vegBytes + p.kokuyuBytes });
@@ -343,12 +354,35 @@ export default function App() {
   };
 
   const addMemos = async (added: Memo[]) => {
-    for (const m of added) await dbPut(STORES.memos, m.id, m);
-    setMemos((cur) => [...cur, ...added]);
+    const now = Date.now();
+    const stamped = added.map((m) => ({ ...m, updatedAt: m.updatedAt ?? now }));
+    for (const m of stamped) await dbPut(STORES.memos, m.id, m);
+    setMemos((cur) => B.mergeMemos(cur, stamped));
   };
+  // A deleted memo stays as a hidden tombstone so other devices' older copies cannot bring it back.
   const deleteMemo = async (id: string) => {
-    await dbDelete(STORES.memos, id);
-    setMemos((cur) => cur.filter((m) => m.id !== id));
+    const target = memos.find((m) => m.id === id);
+    if (!target) return;
+    const tomb = { ...target, deleted: true, updatedAt: Date.now() };
+    await dbPut(STORES.memos, id, tomb);
+    setMemos((cur) => cur.map((m) => (m.id === id ? tomb : m)));
+  };
+
+  const exportBackup = async (): Promise<string> => {
+    const backup = B.buildBackup(memos, sel, { elev, kokuyu: showKokuyu, seasonOnly }, new Date());
+    const name = `veg-map-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    const result = await exportFile(name, JSON.stringify(backup, null, 1), 'application/json');
+    return result === 'cancelled' ? '' : `${name} を書き出しました`;
+  };
+  // Import merges (newer copy wins) instead of replacing, so backups from several devices combine.
+  const importBackup = async (file: File): Promise<string> => {
+    const backup = B.parseBackup(await file.text());
+    const merged = B.mergeMemos(memos, backup.memos);
+    for (const m of merged) await dbPut(STORES.memos, m.id, m);
+    setMemos(merged);
+    setSel((cur) => B.mergeSelection(cur, backup.groups, backup.tombstones, backup.individuals));
+    const live = backup.memos.filter((m) => !m.deleted).length;
+    return `読み込みました（メモ ${live} 件・グループ ${backup.groups.length} 件を統合）`;
   };
   const mapCenter = () => {
     const c = mapRef.current?.getCenter();
@@ -470,11 +504,13 @@ export default function App() {
             onStorePref={(p) => void onStorePref(p)}
             onRemovePref={(p) => void onRemovePref(p)}
             viewBbox={viewBbox}
+            onExportBackup={exportBackup}
+            onImportBackup={importBackup}
           />
         )}
         {tab === 'memo' && (
           <MemoPanel
-            memos={memos}
+            memos={liveMemos}
             mapCenter={mapCenter}
             onAdd={(m) => void addMemos(m)}
             onDelete={(id) => void deleteMemo(id)}

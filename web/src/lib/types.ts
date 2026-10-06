@@ -34,6 +34,10 @@ export interface Memo {
   lon: number;
   time: string; // ISO 8601
   text: string;
+  // Last change (ms since epoch); merges and sync keep the newer copy. Absent = `time`.
+  updatedAt?: number;
+  // Tombstone: kept (hidden) so a deletion wins over older copies on other devices.
+  deleted?: boolean;
 }
 
 /** How terrain outside/inside the band is drawn: grey out outside, tint inside, or nothing. */
