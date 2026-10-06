@@ -30,6 +30,8 @@ const MB = 1e6;
 interface Props {
   prefs: PrefEntry[];
   stored: Set<string>;
+  hiddenPrefs: string[];
+  onPrefVisible: (key: string, visible: boolean) => void;
   busyPref: { key: string; received: number; total: number } | null;
   onStorePref: (p: PrefEntry) => void;
   onRemovePref: (p: PrefEntry) => void;
@@ -50,6 +52,8 @@ function mb(bytes: number): string {
 export function SavePanel({
   prefs,
   stored,
+  hiddenPrefs,
+  onPrefVisible,
   busyPref,
   onStorePref,
   onRemovePref,
@@ -155,16 +159,29 @@ export function SavePanel({
   return (
     <div className="panel">
       <h3>① 県の植生データ</h3>
-      <p className="hint">表示する県を端末に保存します（一度だけ。圏外でも使えます）。</p>
+      <p className="hint">
+        表示する県を端末に保存します（一度だけ。圏外でも使えます）。保存した県はチェックで地図への表示を切り替えられます（データは消えません）。
+      </p>
       <ul className="prefs">
         {prefs.map((p) => {
           const isStored = stored.has(p.key);
           const busy = busyPref?.key === p.key;
           return (
             <li key={p.key}>
-              <span>
-                {p.name}（{mb(p.vegBytes + p.kokuyuBytes)}・{p.built}）
-              </span>
+              {isStored ? (
+                <label className="pref-name" title="地図に表示する／しない">
+                  <input
+                    type="checkbox"
+                    checked={!hiddenPrefs.includes(p.key)}
+                    onChange={(e) => onPrefVisible(p.key, e.target.checked)}
+                  />
+                  {p.name}（{mb(p.vegBytes + p.kokuyuBytes)}・{p.built}）
+                </label>
+              ) : (
+                <span>
+                  {p.name}（{mb(p.vegBytes + p.kokuyuBytes)}・{p.built}）
+                </span>
+              )}
               {busy ? (
                 <span>
                   保存中 {Math.floor(((busyPref?.received ?? 0) / (busyPref?.total || 1)) * 100)}%

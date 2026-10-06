@@ -148,7 +148,7 @@ veg-map/
 | 〃 | `memos` / `areas` | 発見地点メモ／保存した範囲の記録 |
 | Cache API | `gsi-glyphs` | 地名フォント（SWのCacheFirst＋範囲保存時に先読み ~10MB） |
 | Cache API | `pref-index` | prefs.json（SWのNetworkFirst） |
-| localStorage | `veg-map:` ＋ `selected` `groups` `groupTombstones` `elev` `kokuyu` `seasonOnly` `focus` `sheetSize` `view` | 画面設定。**端末ごと**（グループは同期実装後に共有） |
+| localStorage | `veg-map:` ＋ `selected` `groups` `groupTombstones` `elev` `kokuyu` `seasonOnly` `focus` `sheetSize` `view` `hiddenPrefs` `backupParts` `showOthers` | 画面設定。**端末ごと**（グループは同期実装後に共有） |
 
 ### 5.4 選択とグループのモデル（`web/src/lib/groups.ts`）
 - `selected`: **(群落コード, グループ) ごとに1件**。`group` 未設定＝個別選択（群落ごとに最大1件）。同じ群落を複数グループ＋個別に同時に入れられる。
@@ -201,7 +201,7 @@ veg-map/
 - 群落タブ: 検索（ひらがな・濁点・記号のゆれ吸収）→「追加先」（個別 or グループ）にチェックで追加／「この結果でグループ作成」／「表示中をすべて追加」。検索欄が空なら選択中一覧（グループ: 表示チェック・色・名前✎・🎯注目・▼・🗑、標高帯と時期の入力）。
 - 地図の凡例: グループ1行＋個別、重なり行、標高帯。チェックで表示切替。
 - タップ: 凡例名・植生区分・標高・該当グループ全部・国有林。
-- 保存タブ: 県データの保存/削除、表示中範囲の保存（見込み枚数・容量表示）。
+- 保存タブ: 県データの保存/削除、**保存した県ごとの表示チェック**（10-06。非表示の県は未保存と同じく地図から外す＝県境は表示中の隣県が持ち主規則で埋める。データは消さない）、表示中範囲の保存（見込み枚数・容量表示）。
 - メモタブ: 現在地 or 地図中心に記録、GPX書き出し（スマホは共有シート）/読み込み。
 
 ---

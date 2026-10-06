@@ -109,6 +109,12 @@ export default function App() {
   const [prefs, setPrefs] = useState<PrefEntry[]>([]);
   const [stored, setStored] = useState<Set<string>>(new Set());
   const [attached, setAttached] = useState<Set<string>>(new Set());
+  // Stored prefectures the user switched off: kept on the device, just not drawn.
+  const [hiddenPrefs, setHiddenPrefs] = useState<string[]>(() => loadSetting('hiddenPrefs', []));
+  useEffect(() => saveSetting('hiddenPrefs', hiddenPrefs), [hiddenPrefs]);
+  const setPrefVisible = useCallback((key: string, visible: boolean) => {
+    setHiddenPrefs((cur) => (visible ? cur.filter((k) => k !== key) : [...new Set([...cur, key])]));
+  }, []);
   const [busyPref, setBusyPref] = useState<{ key: string; received: number; total: number } | null>(null);
 
   // Selections and colour groups live in one state so a move between them is atomic.
@@ -166,6 +172,12 @@ export default function App() {
   }, []);
 
   const storedPrefs = useMemo(() => prefs.filter((p) => stored.has(p.key)), [prefs, stored]);
+  // A hidden prefecture is detached like an unstored one, so its border polygons are drawn by
+  // the visible neighbours (ownership rule) and nothing is left blank.
+  const shownPrefs = useMemo(
+    () => storedPrefs.filter((p) => !hiddenPrefs.includes(p.key)),
+    [storedPrefs, hiddenPrefs],
+  );
   const legends = useMemo(() => mergeLegends(storedPrefs), [storedPrefs]);
 
   // Every change stamps groups whose shared content changed, so merges and sync keep the
@@ -401,15 +413,16 @@ export default function App() {
   useEffect(() => {
     const map = mapRef.current;
     if (!mapReady || !map) return;
-    const toAttach = storedPrefs.filter((p) => !attached.has(p.key));
-    const toDetach = [...attached].filter((k) => !stored.has(k));
+    const shownKeys = new Set(shownPrefs.map((p) => p.key));
+    const toAttach = shownPrefs.filter((p) => !attached.has(p.key));
+    const toDetach = [...attached].filter((k) => !shownKeys.has(k));
     if (toAttach.length === 0 && toDetach.length === 0) return;
     (async () => {
       for (const key of toDetach) removePrefLayers(map, key);
       for (const p of toAttach) addPrefLayers(map, p.key, await attachPref(p));
-      setAttached(new Set(storedPrefs.map((p) => p.key)));
+      setAttached(shownKeys);
     })().catch((e: unknown) => setNotice(`植生データを開けませんでした: ${String(e)}`));
-  }, [mapReady, storedPrefs, stored, attached]);
+  }, [mapReady, shownPrefs, attached]);
 
   // --- restyle on selection / elevation / kokuyu changes -------------------
   useEffect(() => {
@@ -634,6 +647,8 @@ export default function App() {
           <SavePanel
             prefs={prefs}
             stored={stored}
+            hiddenPrefs={hiddenPrefs}
+            onPrefVisible={setPrefVisible}
             busyPref={busyPref}
             onStorePref={(p) => void onStorePref(p)}
             onRemovePref={(p) => void onRemovePref(p)}

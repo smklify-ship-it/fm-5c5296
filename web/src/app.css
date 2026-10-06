@@ -602,3 +602,15 @@ button.focus.on {
   min-height: 28px;
   color: var(--muted);
 }
+
+.pref-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.pref-name input {
+  width: 18px;
+  height: 18px;
+}
