@@ -135,7 +135,7 @@ export function ElevationPanel({
       </div>
       <p className="hint">
         選んだ向きの斜面だけを見せ、それ以外を灰色で隠します（標高の帯と組み合わせ可）。平らな所は隠しません。
-        地図を拡大（ズーム10以上）すると表示されます。
+        地図を拡大し、左下の縮尺が300m程度になると表示されます。
       </p>
       <hr />
       <label className="row">

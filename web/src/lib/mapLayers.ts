@@ -50,8 +50,12 @@ export function addElevationLayer(map: MlMap): void {
 
 const ASPECT_SRC = 'gsi-aspect';
 const ASPECT_LAYER = 'aspect-mask';
-// Below z10 slopes are too small on screen to matter, and computing them would be wasted work.
-const ASPECT_MIN_ZOOM = 10;
+// Elevation tiles the aspect is computed from (z13 ≈ 15 m/px; over-zoomed above).
+const ASPECT_TILE_MIN_ZOOM = 10;
+// The mask is only drawn from about the 300 m scale bar (MapLibre z14 ≈ 1.6 km across a phone,
+// user decision 10-06): slopes are too small to read when zoomed out, and fewer tiles are
+// computed while panning a wide view.
+export const ASPECT_SHOW_ZOOM = 14;
 
 /** Slope-aspect mask (raster from aspect.ts), drawn just above the elevation mask. */
 export function addAspectLayer(map: MlMap, tilesUrl: string): void {
@@ -60,11 +64,17 @@ export function addAspectLayer(map: MlMap, tilesUrl: string): void {
     type: 'raster',
     tiles: [tilesUrl],
     tileSize: 256,
-    minzoom: ASPECT_MIN_ZOOM,
+    minzoom: ASPECT_TILE_MIN_ZOOM,
     maxzoom: DEM_SOURCE.maxzoom,
   });
   map.addLayer(
-    { id: ASPECT_LAYER, type: 'raster', source: ASPECT_SRC, layout: { visibility: 'none' } },
+    {
+      id: ASPECT_LAYER,
+      type: 'raster',
+      source: ASPECT_SRC,
+      minzoom: ASPECT_SHOW_ZOOM,
+      layout: { visibility: 'none' },
+    },
     map.getStyle().layers.find((l) => l.type === 'symbol')?.id,
   );
 }
