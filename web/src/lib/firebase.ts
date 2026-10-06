@@ -33,7 +33,7 @@ const FIREBASE_CONFIG = {
  * The owner's Firebase uid (Google sign-in). Empty until the owner signs in for the first
  * time; then it is copied here and into firestore.rules (same value) and redeployed.
  */
-export const OWNER_UID = 'Oqnz2I7pJwdZFcTcxbDVzVFCECl2';
+export const OWNER_UID: string = 'Oqnz2I7pJwdZFcTcxbDVzVFCECl2';
 
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
