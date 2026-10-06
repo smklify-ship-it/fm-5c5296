@@ -1,0 +1,66 @@
+rules_version = '2';
+
+// veg-map sync. Paste into Firebase console > Firestore Database > Rules (or deploy with the
+// Firebase CLI). Anyone may write, but only under their own (anonymous) uid; each device can
+// read only its own data; the owner can read every device's data.
+// OWNER_UID below must equal OWNER_UID in web/src/lib/firebase.ts.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isOwner() {
+      return signedIn() && request.auth.uid == 'OWNER_UID_NOT_SET';
+    }
+    function self(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validDevice(d) {
+      return d.keys().hasOnly(['label', 'lastSeen', 'owner'])
+        && d.label is string && d.label.size() <= 40
+        && d.lastSeen is number;
+    }
+    function validMemo(d) {
+      return d.keys().hasOnly(['id', 'lat', 'lon', 'time', 'text', 'updatedAt', 'deleted'])
+        && d.lat is number && d.lon is number
+        && d.time is string && d.time.size() <= 40
+        && d.text is string && d.text.size() <= 2000;
+    }
+    function validGroup(d) {
+      return d.keys().hasOnly(['id', 'name', 'color', 'elev', 'months', 'updatedAt', 'members'])
+        && d.name is string && d.name.size() <= 100
+        && d.color is string && d.color.size() <= 20
+        && d.members is list && d.members.size() <= 2000;
+    }
+    function validTombstone(d) {
+      return d.keys().hasOnly(['id', 'updatedAt']) && d.updatedAt is number;
+    }
+
+    match /devices/{uid} {
+      allow read: if self(uid) || isOwner();
+      allow create, update: if self(uid) && validDevice(request.resource.data);
+    }
+    match /devices/{uid}/memos/{id} {
+      allow read: if self(uid) || isOwner();
+      allow create, update: if self(uid) && validMemo(request.resource.data);
+    }
+    match /devices/{uid}/groups/{id} {
+      allow read: if self(uid) || isOwner();
+      allow create, update: if self(uid) && validGroup(request.resource.data);
+    }
+    match /devices/{uid}/tombstones/{id} {
+      allow read: if self(uid) || isOwner();
+      allow create, update: if self(uid) && validTombstone(request.resource.data);
+    }
+
+    // Owner-only queries across every device (collection group queries).
+    match /{path=**}/memos/{id} {
+      allow read: if isOwner();
+    }
+    match /{path=**}/groups/{id} {
+      allow read: if isOwner();
+    }
+    // Nothing is ever deleted from the cloud: deletions are tombstones (see DESIGN.md).
+  }
+}

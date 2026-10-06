@@ -12,6 +12,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "firebase": "12.19.0",
     "maplibre-gl": "^6.11.2",
     "pmtiles": "^4.5.0",
     "react": "^19.3.0",

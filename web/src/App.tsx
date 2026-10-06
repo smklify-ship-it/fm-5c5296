@@ -18,7 +18,9 @@ import * as B from './lib/backup';
 import { loadBaseStyle } from './lib/basemap';
 import { exportFile } from './lib/share';
 import { registerPatternFactory } from './lib/patterns';
-import { dbAll, dbPut, STORES } from './lib/db';
+import { dbAll, dbGet, dbPut, dbPutMany, STORES } from './lib/db';
+import { ownerSignIn, syncOnce, type OtherMemo } from './lib/sync';
+import type { SyncInfo } from './components/SavePanel';
 import {
   addElevationLayer,
   addPrefLayers,
@@ -35,6 +37,10 @@ import type { BBox, ElevationRange, Memo, PrefEntry } from './lib/types';
 import { attachPref, fetchPrefIndex, isPrefStored, removePref, storePref } from './lib/vegsource';
 
 type Tab = 'veg' | 'elev' | 'save' | 'memo';
+// Wait this long after the last change before syncing, so a burst of edits is one upload.
+const SYNC_DELAY_MS = 3000;
+const OTHERS_KEY = 'sync/others';
+const OTHERS_COLOR = '#2c7fb8';
 // Panel height on phones. Fixed per size (not content-driven) so switching tabs never
 // resizes the map; the panel content scrolls instead.
 type SheetSize = 's' | 'm' | 'l';
@@ -119,6 +125,11 @@ export default function App() {
   // Group whose band drives the terrain mask/highlight (only one band can shade the terrain).
   const [focus, setFocus] = useState<string | null>(() => loadSetting('focus', null));
   const [memos, setMemos] = useState<Memo[]>([]);
+  const [memosLoaded, setMemosLoaded] = useState(false);
+  const [syncInfo, setSyncInfo] = useState<SyncInfo>({ state: 'idle' });
+  // Owner only: memos registered on other devices (a separate layer, never merged).
+  const [others, setOthers] = useState<OtherMemo[]>([]);
+  const [showOthers, setShowOthers] = useState<boolean>(() => loadSetting('showOthers', true));
   // Deleted memos are kept as tombstones (see deleteMemo); only live ones are shown.
   const liveMemos = useMemo(() => memos.filter((m) => !m.deleted), [memos]);
   const [tab, setTab] = useState<Tab | null>(null);
@@ -136,6 +147,7 @@ export default function App() {
   useEffect(() => saveSetting('seasonOnly', seasonOnly), [seasonOnly]);
   useEffect(() => saveSetting('focus', focus), [focus]);
   useEffect(() => saveSetting('sheetSize', sheetSize), [sheetSize]);
+  useEffect(() => saveSetting('showOthers', showOthers), [showOthers]);
 
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -280,12 +292,104 @@ export default function App() {
       setPrefs(index.prefs);
       const flags = await Promise.all(index.prefs.map((p) => isPrefStored(p)));
       setStored(new Set(index.prefs.filter((_, i) => flags[i]).map((p) => p.key)));
-      setMemos(await dbAll<Memo>(STORES.memos));
       if (!flags.some(Boolean)) setTab('save');
     })().catch((e: unknown) =>
       setNotice(`データ一覧を読み込めませんでした（${String(e)}）。一度オンラインで開いてください`),
     );
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      setMemos(await dbAll<Memo>(STORES.memos));
+      const cachedOthers = await dbGet<OtherMemo[]>(STORES.files, OTHERS_KEY);
+      if (cachedOthers) setOthers(cachedOthers);
+      setMemosLoaded(true);
+    })().catch((e: unknown) => setNotice(`メモを読み込めませんでした: ${String(e)}`));
+  }, []);
+
+  // --- automatic sync (no button) -------------------------------------------
+  // Runs at start-up, when the app comes back online / to the foreground, and SYNC_DELAY_MS
+  // after any change to memos or groups. Remote data is merged onto the *latest* local state
+  // so edits made while a sync is in flight are kept and pushed by the next run.
+  const memosRef = useRef(memos);
+  const selStateRef = useRef(sel);
+  useEffect(() => {
+    memosRef.current = memos;
+    selStateRef.current = sel;
+  }, [memos, sel]);
+  const syncBusy = useRef(false);
+  const syncAgain = useRef(false);
+  const runSync = useCallback(async () => {
+    if (!navigator.onLine) {
+      setSyncInfo((s) => ({ ...s, state: 'offline' }));
+      return;
+    }
+    if (syncBusy.current) {
+      syncAgain.current = true;
+      return;
+    }
+    syncBusy.current = true;
+    setSyncInfo((s) => ({ ...s, state: 'syncing' }));
+    try {
+      const out = await syncOnce(memosRef.current, selStateRef.current);
+      const curMemos = memosRef.current;
+      const merged = B.mergeMemos(curMemos, out.remoteMemos);
+      const changed = merged.filter((m) => !curMemos.includes(m));
+      if (changed.length > 0) {
+        await dbPutMany(STORES.memos, changed.map((m) => [m.id, m]));
+        setMemos(merged);
+      }
+      const curSel = selStateRef.current;
+      const mergedSel = B.mergeSelection(curSel, out.remoteGroups, out.remoteTombstones);
+      if (JSON.stringify(mergedSel) !== JSON.stringify(curSel)) setSel(mergedSel);
+      if (out.others) {
+        setOthers(out.others);
+        await dbPut(STORES.files, OTHERS_KEY, out.others);
+      }
+      setSyncInfo({
+        state: 'synced',
+        at: Date.now(),
+        pushed: out.pushed,
+        uid: out.uid,
+        anonymous: out.anonymous,
+        owner: out.owner,
+        ownerReadError: out.ownerReadError,
+      });
+    } catch (e) {
+      console.error('sync failed', e);
+      setSyncInfo((s) => ({ ...s, state: 'error', message: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      syncBusy.current = false;
+      if (syncAgain.current) {
+        syncAgain.current = false;
+        void runSync();
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!memosLoaded) return;
+    const timer = window.setTimeout(() => void runSync(), SYNC_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [memosLoaded, memos, sel, runSync]);
+
+  useEffect(() => {
+    const kick = () => {
+      if (document.visibilityState === 'visible') void runSync();
+    };
+    window.addEventListener('online', kick);
+    document.addEventListener('visibilitychange', kick);
+    return () => {
+      window.removeEventListener('online', kick);
+      document.removeEventListener('visibilitychange', kick);
+    };
+  }, [runSync]);
+
+  const onOwnerSignIn = async (): Promise<string> => {
+    const uid = await ownerSignIn();
+    await runSync();
+    return uid;
+  };
 
   // --- attach stored prefecture layers ------------------------------------
   useEffect(() => {
@@ -329,6 +433,19 @@ export default function App() {
     });
     return () => markers.forEach((mk) => mk.remove());
   }, [mapReady, liveMemos]);
+
+  // Owner: other devices' memos in a different colour, labelled with their device.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map || !showOthers) return;
+    const markers = others.map((m) => {
+      const popup = new Popup({ offset: 24 }).setText(
+        `[${m.deviceLabel} ${m.device.slice(0, 4)}] ${new Date(m.time).toLocaleString('ja-JP')}\n${m.text}`,
+      );
+      return new Marker({ color: OTHERS_COLOR }).setLngLat([m.lon, m.lat]).setPopup(popup).addTo(map);
+    });
+    return () => markers.forEach((mk) => mk.remove());
+  }, [mapReady, others, showOthers]);
 
   const onStorePref = async (p: PrefEntry) => {
     setBusyPref({ key: p.key, received: 0, total: p.vegBytes + p.kokuyuBytes });
@@ -506,6 +623,11 @@ export default function App() {
             viewBbox={viewBbox}
             onExportBackup={exportBackup}
             onImportBackup={importBackup}
+            syncInfo={syncInfo}
+            onOwnerSignIn={onOwnerSignIn}
+            othersCount={others.length}
+            showOthers={showOthers}
+            onShowOthers={setShowOthers}
           />
         )}
         {tab === 'memo' && (

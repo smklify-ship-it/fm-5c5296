@@ -162,6 +162,16 @@ veg-map/
 - ファイル: `{app:"veg-map", format:1, exportedAt, memos[], groups[{…, members:[コード]}], tombstones[], individuals[], settings}`
 - 統合: 項目ID ごとに `updatedAt` の新しい方を残す。削除の印のほうが新しければ削除が勝つ。グループのメンバーは勝った側で置き換え、各端末の表示/非表示は保持。**同期もこの規則を使う**。
 
+### 5.6 集約（自動同期）（`web/src/lib/sync.ts`, `firebase.ts`, ルート `firestore.rules`）
+- Firebase プロジェクト `kinokopiyoko-d9e68`（オーナー個人用アカウント、無料Spark）。Firestore（asia-northeast1）＋ Authentication（匿名・Google）。承認済みドメインに `smklify-ship-it.github.io`。
+- 配置: `devices/{uid}`（label・lastSeen・owner）、`devices/{uid}/memos|groups|tombstones/{id}`。
+- **誰でも**: 起動時に見えない匿名ログイン → 自分の uid の下にだけ書ける・読める。
+- **オーナー**: 「オーナーとしてGoogleでログイン」を1回。オーナー端末どうしは同じ uid を共有して双方向同期。`OWNER_UID`（`firebase.ts`）と `firestore.rules` の `isOwner()` に同じ値を入れると、collectionGroup で**全端末のメモを読める**（地図に青い印・端末ラベル付き、自分のデータには混ぜない）。
+- タイミング: 起動時／オンライン復帰・前面復帰時／変更の3秒後。毎回「自分の場所を全部読む→統合（5.5の規則）→クラウドに無い・古いものだけ書く」。同期ボタンは無い。圏外では状態だけ「未同期」にして次回に回す。
+- クラウドからは何も削除しない（削除は印）。規則で1件の大きさ・項目名を制限。
+- **アクセス規則を変えたら Firebase 管理画面の Firestore > ルール に貼って公開する**（CLI は仕事用アカウントでログイン中なので使わない）。
+- Firebase SDK は動的 import（同期時だけ読み込む）。`pnpm-workspace.yaml` で `@firebase/util` と `protobufjs` のインストールスクリプトを無効化（ブラウザ用には不要）。
+
 ---
 
 ## 6. 表示ロジック
@@ -226,10 +236,10 @@ veg-map/
 |---|---|
 | 2026-10-04 | 初版（群馬、PWA、オフライン、標高帯・国有林・メモGPX） |
 | 2026-10-05 | GitHub Pages公開／表示切替／色グループ／長野・山梨・新潟・埼玉追加／標高マスク・強調／キノコ条件（手動）／パネル高さ固定／iPhone対応／県境の完全補完＋栃木・福島 |
-| 2026-10-06 | 同一群落の複数グループ所属・重なりストライプ／本設計書／バックアップ（統合型）と更新時刻・削除の印 |
+| 2026-10-06 | 同一群落の複数グループ所属・重なりストライプ／本設計書／バックアップ（統合型）と更新時刻・削除の印／Firebase 自動同期（匿名で書込み・オーナーだけ全体を読む） |
 
 ## 11. 未検証・未決定
 - Android・iPhone 実機での動作（特に iPhone の地図描画、圏外での初回GPS測位時間）
 - 1/5万植生図を切替レイヤとして追加するか（提案のみ）
-- Firebase 同期の実装（方式は決定済み・2章。オーナーのFirebaseプロジェクト作成待ち）。iPhoneホーム画面アプリでのGoogleログイン（オーナーのみ必要）は未確認
+- オーナーIDの登録（オーナーが初回ログイン後、`OWNER_UID` と `firestore.rules` に入れて規則を貼り直す）。iPhoneホーム画面アプリでのGoogleログイン（オーナーのみ必要）は未確認
 - 端末に残る古い版の県データは自動削除されるが、Cache API／IndexedDB の容量上限に近い場合の挙動は未確認

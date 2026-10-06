@@ -1,0 +1,5 @@
+# Install scripts are not needed for the browser bundle:
+# @firebase/util writes server-side auto-init defaults, protobufjs only checks versions.
+allowBuilds:
+  '@firebase/util': false
+  protobufjs: false

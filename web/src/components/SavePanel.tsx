@@ -10,6 +10,33 @@ import { dbAll, dbClear, dbPut, STORES } from '../lib/db';
 import type { BBox, PrefEntry, SavedArea } from '../lib/types';
 
 const ZOOM_CHOICES = [14, 15, 16];
+
+/** Shown in the 集約 section; produced by App's automatic sync. */
+export interface SyncInfo {
+  state: 'idle' | 'syncing' | 'synced' | 'offline' | 'error';
+  at?: number;
+  pushed?: number;
+  uid?: string;
+  anonymous?: boolean;
+  owner?: boolean;
+  ownerReadError?: string;
+  message?: string;
+}
+
+function syncText(info: SyncInfo): string {
+  switch (info.state) {
+    case 'syncing':
+      return '同期中…';
+    case 'synced':
+      return `同期済み（${new Date(info.at ?? 0).toLocaleTimeString('ja-JP')}${info.pushed ? `・${info.pushed}件送信` : ''}）`;
+    case 'offline':
+      return '圏外のため未同期（電波が戻ると自動で同期します）';
+    case 'error':
+      return `同期できませんでした: ${info.message ?? ''}（次の起動・変更時に再試行します）`;
+    default:
+      return '起動直後の同期を待っています';
+  }
+}
 const MB = 1e6;
 
 interface Props {
@@ -22,6 +49,11 @@ interface Props {
   // Return a status line for the panel; throw with a user-facing message on failure.
   onExportBackup: () => Promise<string>;
   onImportBackup: (file: File) => Promise<string>;
+  syncInfo: SyncInfo;
+  onOwnerSignIn: () => Promise<string>;
+  othersCount: number;
+  showOthers: boolean;
+  onShowOthers: (v: boolean) => void;
 }
 
 function mb(bytes: number): string {
@@ -37,7 +69,21 @@ export function SavePanel({
   viewBbox,
   onExportBackup,
   onImportBackup,
+  syncInfo,
+  onOwnerSignIn,
+  othersCount,
+  showOthers,
+  onShowOthers,
 }: Props) {
+  const [ownerStatus, setOwnerStatus] = useState('');
+  const signInOwner = async () => {
+    try {
+      const uid = await onOwnerSignIn();
+      setOwnerStatus(`ログインしました。オーナーID: ${uid}`);
+    } catch (e) {
+      setOwnerStatus(`ログインできませんでした: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   const [backupStatus, setBackupStatus] = useState('');
   const backupFileRef = useRef<HTMLInputElement>(null);
   const runBackup = async (task: () => Promise<string>) => {
@@ -207,6 +253,35 @@ export function SavePanel({
         />
       </div>
       {backupStatus && <p className="hint">{backupStatus}</p>}
+
+      <h3>④ 集約（自動同期）</h3>
+      <p className="hint">
+        発見地点メモとグループは、電波があるとき自動で1か所に送られます（起動時・変更時）。
+        ほかの人が読めるのは自分が登録した分だけです。
+      </p>
+      <p className={syncInfo.state === 'error' ? 'warn' : 'hint'}>{syncText(syncInfo)}</p>
+      {syncInfo.anonymous === false ? (
+        <>
+          <p className="hint">この端末はオーナーとしてログイン中です。</p>
+          {syncInfo.ownerReadError || !syncInfo.owner ? (
+            <p className="warn">
+              全員分を読むにはオーナー登録が必要です。このIDを設定に登録してください: {syncInfo.uid}
+            </p>
+          ) : (
+            <label className="row">
+              <input type="checkbox" checked={showOthers} onChange={(e) => onShowOthers(e.target.checked)} />
+              ほかの端末の発見地点を表示（{othersCount}件・青い印）
+            </label>
+          )}
+        </>
+      ) : (
+        <details className="owner">
+          <summary>オーナー用</summary>
+          <p className="hint">全員分の集約データを読むのはオーナーだけです。オーナーの端末で1回だけログインします。</p>
+          <button onClick={() => void signInOwner()}>オーナーとしてGoogleでログイン</button>
+        </details>
+      )}
+      {ownerStatus && <p className="hint">{ownerStatus}</p>}
       <p className="hint">{usage}</p>
     </div>
   );
