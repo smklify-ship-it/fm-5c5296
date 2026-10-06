@@ -23,20 +23,6 @@ export interface SyncInfo {
   message?: string;
 }
 
-function syncText(info: SyncInfo): string {
-  switch (info.state) {
-    case 'syncing':
-      return '同期中…';
-    case 'synced':
-      return `同期済み（${new Date(info.at ?? 0).toLocaleTimeString('ja-JP')}${info.pushed ? `・${info.pushed}件送信` : ''}）`;
-    case 'offline':
-      return '圏外のため未同期（電波が戻ると自動で同期します）';
-    case 'error':
-      return `同期できませんでした: ${info.message ?? ''}（次の起動・変更時に再試行します）`;
-    default:
-      return '起動直後の同期を待っています';
-  }
-}
 const MB = 1e6;
 
 interface Props {
@@ -51,7 +37,6 @@ interface Props {
   onImportBackup: (file: File) => Promise<string>;
   syncInfo: SyncInfo;
   onOwnerSignIn: () => Promise<string>;
-  othersCount: number;
   showOthers: boolean;
   onShowOthers: (v: boolean) => void;
 }
@@ -71,17 +56,16 @@ export function SavePanel({
   onImportBackup,
   syncInfo,
   onOwnerSignIn,
-  othersCount,
   showOthers,
   onShowOthers,
 }: Props) {
-  const [ownerStatus, setOwnerStatus] = useState('');
+  const [ownerError, setOwnerError] = useState('');
   const signInOwner = async () => {
     try {
-      const uid = await onOwnerSignIn();
-      setOwnerStatus(`ログインしました。オーナーID: ${uid}`);
+      await onOwnerSignIn();
+      setOwnerError('');
     } catch (e) {
-      setOwnerStatus(`ログインできませんでした: ${e instanceof Error ? e.message : String(e)}`);
+      setOwnerError(`ログインできませんでした: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
   const [backupStatus, setBackupStatus] = useState('');
@@ -254,35 +238,21 @@ export function SavePanel({
       </div>
       {backupStatus && <p className="hint">{backupStatus}</p>}
 
-      <h3>④ 集約（自動同期）</h3>
-      <p className="hint">
-        発見地点メモとグループは、電波があるとき自動で1か所に送られます（起動時・変更時）。
-        ほかの人が読めるのは自分が登録した分だけです。
-      </p>
-      <p className={syncInfo.state === 'error' ? 'warn' : 'hint'}>{syncText(syncInfo)}</p>
-      {syncInfo.anonymous === false ? (
-        <>
-          <p className="hint">この端末はオーナーとしてログイン中です。</p>
-          {syncInfo.ownerReadError || !syncInfo.owner ? (
-            <p className="warn">
-              全員分を読むにはオーナー登録が必要です。このIDを設定に登録してください: {syncInfo.uid}
-            </p>
-          ) : (
-            <label className="row">
-              <input type="checkbox" checked={showOthers} onChange={(e) => onShowOthers(e.target.checked)} />
-              ほかの端末の発見地点を表示（{othersCount}件・青い印）
-            </label>
-          )}
-        </>
-      ) : (
+      {/* Sync runs silently; the owner only gets the switch for other devices' memos. */}
+      {syncInfo.owner && (
+        <label className="row">
+          <input type="checkbox" checked={showOthers} onChange={(e) => onShowOthers(e.target.checked)} />
+          ほかの端末の発見地点を表示
+        </label>
+      )}
+      <p className="hint">{usage}</p>
+      {syncInfo.anonymous === true && (
         <details className="owner">
           <summary>オーナー用</summary>
-          <p className="hint">全員分の集約データを読むのはオーナーだけです。オーナーの端末で1回だけログインします。</p>
           <button onClick={() => void signInOwner()}>オーナーとしてGoogleでログイン</button>
         </details>
       )}
-      {ownerStatus && <p className="hint">{ownerStatus}</p>}
-      <p className="hint">{usage}</p>
+      {ownerError && <p className="warn">{ownerError}</p>}
     </div>
   );
 }

@@ -631,7 +631,6 @@ export default function App() {
             onImportBackup={importBackup}
             syncInfo={syncInfo}
             onOwnerSignIn={onOwnerSignIn}
-            othersCount={otherMemos.length}
             showOthers={showOthers}
             onShowOthers={setShowOthers}
           />
