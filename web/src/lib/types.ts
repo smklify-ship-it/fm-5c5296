@@ -43,6 +43,12 @@ export interface Memo {
 /** How terrain outside/inside the band is drawn: grey out outside, tint inside, or nothing. */
 export type ElevationMode = 'mask' | 'highlight' | 'none';
 
+/** Slope-aspect filter: show only slopes facing the allowed directions (aspect.ts). */
+export interface AspectSetting {
+  enabled: boolean;
+  allowed: boolean[]; // 8 entries: 北, 北東, 東, 南東, 南, 南西, 西, 北西
+}
+
 export interface ElevationRange {
   enabled: boolean;
   min: number;

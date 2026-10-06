@@ -124,11 +124,20 @@ export function registerBasemapProtocol(): void {
   });
   addProtocol(DEM_PROTOCOL, async (params, abortController) => {
     const [z, x, y] = parseTileUrl(params.url);
-    const stored = await dbGet<ArrayBuffer>(STORES.tiles, demKey(z, x, y));
-    if (stored) return { data: stored };
-    if (!navigator.onLine) return { data: await noDataTile() };
-    return { data: await fetchDemTile(z, x, y, abortController.signal) };
+    return { data: await loadDemTile(z, x, y, abortController.signal) };
   });
+}
+
+/**
+ * One GSI elevation PNG: the saved copy when present, else the network, else (offline) the
+ * no-data tile. Always a fresh buffer (callers may hand it to a worker). Shared by the
+ * elevation mask and the slope-aspect mask.
+ */
+export async function loadDemTile(z: number, x: number, y: number, signal: AbortSignal): Promise<ArrayBuffer> {
+  const stored = await dbGet<ArrayBuffer>(STORES.tiles, demKey(z, x, y));
+  if (stored) return stored;
+  if (!navigator.onLine) return noDataTile();
+  return fetchDemTile(z, x, y, signal);
 }
 
 /** GSI style JSON with tiles routed through our protocol and the sprite served by this app. */

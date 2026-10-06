@@ -21,8 +21,11 @@ import { registerPatternFactory } from './lib/patterns';
 import { dbAll, dbGet, dbPut, dbPutMany, STORES } from './lib/db';
 import { ownerSignIn, syncOnce, type OtherMemo } from './lib/sync';
 import type { SyncInfo } from './components/SavePanel';
+import { DIRECTIONS, setAspectOptions } from './lib/aspect';
 import {
+  addAspectLayer,
   addElevationLayer,
+  applyAspect,
   addPrefLayers,
   applyElevationBand,
   applyKokuyuVisibility,
@@ -33,12 +36,13 @@ import {
 import { mergeLegends } from './lib/search';
 import { loadSetting, saveSetting } from './lib/settings';
 import * as G from './lib/groups';
-import type { BBox, ElevationRange, Memo, PrefEntry } from './lib/types';
+import type { AspectSetting, BBox, ElevationRange, Memo, PrefEntry } from './lib/types';
 import { attachPref, fetchPrefIndex, isPrefStored, removePref, storePref } from './lib/vegsource';
 
 type Tab = 'veg' | 'elev' | 'save' | 'memo';
 // Wait this long after the last change before syncing, so a burst of edits is one upload.
 const SYNC_DELAY_MS = 3000;
+const ASPECT_DELAY_MS = 300;
 const OTHERS_KEY = 'sync/others';
 const OTHERS_COLOR = '#2c7fb8';
 // Panel height on phones. Fixed per size (not content-driven) so switching tabs never
@@ -128,6 +132,10 @@ export default function App() {
   const [elev, setElev] = useState<ElevationRange>(() => loadSetting('elev', DEFAULT_ELEV));
   const [showKokuyu, setShowKokuyu] = useState<boolean>(() => loadSetting('kokuyu', false));
   const [seasonOnly, setSeasonOnly] = useState<boolean>(() => loadSetting('seasonOnly', false));
+  const [aspect, setAspect] = useState<AspectSetting>(() =>
+    loadSetting('aspect', { enabled: false, allowed: DIRECTIONS.map(() => true) }),
+  );
+  useEffect(() => saveSetting('aspect', aspect), [aspect]);
   // Group whose band drives the terrain mask/highlight (only one band can shade the terrain).
   const [focus, setFocus] = useState<string | null>(() => loadSetting('focus', null));
   const [memos, setMemos] = useState<Memo[]>([]);
@@ -259,6 +267,7 @@ export default function App() {
           ?.querySelector('.maplibregl-ctrl-attrib')
           ?.classList.remove('maplibregl-compact-show');
         addElevationLayer(map);
+        addAspectLayer(map, setAspectOptions({ enabled: false, allowed: [], band: null }));
         setMapReady(true);
       });
       map.on('error', (e) => console.error('map error', e.error));
@@ -434,6 +443,23 @@ export default function App() {
     }
   }, [mapReady, attached, entries, elev, showKokuyu]);
 
+  // Aspect mask: combined with the elevation mask (only greys inside the band when the band
+  // masks), re-rendered ASPECT_DELAY_MS after the last change so slider drags stay smooth.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map) return;
+    const timer = window.setTimeout(() => {
+      const masking = terrainBand.enabled && (terrainBand.mode ?? 'mask') === 'mask';
+      const url = setAspectOptions({
+        enabled: aspect.enabled,
+        allowed: aspect.allowed,
+        band: masking ? [terrainBand.min, terrainBand.max] : null,
+      });
+      applyAspect(map, url, aspect.enabled);
+    }, ASPECT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [mapReady, aspect, terrainBand]);
+
   // Terrain mask/highlight does not depend on any prefecture being stored.
   useEffect(() => {
     const map = mapRef.current;
@@ -547,7 +573,7 @@ export default function App() {
         <div ref={containerRef} className="map" />
         {tab === 'memo' && <div className="crosshair">＋</div>}
         {!online && <div className="badge offline">オフライン</div>}
-        {sel.selected.length + sel.groups.length > 0 && tab === null && (
+        {(sel.selected.length + sel.groups.length > 0 || aspect.enabled || terrainBand.enabled) && tab === null && (
           <div className="legend">
             {/* Groups collapse to one row each; individual legends follow. */}
             {sel.groups.map((g) => {
@@ -585,6 +611,11 @@ export default function App() {
               <div className="legend-overlap">
                 <span className="swatch stripes" />
                 重なり（複数グループに当てはまる）
+              </div>
+            )}
+            {aspect.enabled && (
+              <div className="legend-elev">
+                向き {DIRECTIONS.filter((_, i) => aspect.allowed[i]).join('・') || 'なし'}
               </div>
             )}
             {terrainBand.enabled && (
@@ -641,6 +672,8 @@ export default function App() {
             onShowKokuyu={setShowKokuyu}
             focus={focusGroup?.elev ? { name: focusGroup.name, band: focusGroup.elev } : null}
             onClearFocus={() => setFocus(null)}
+            aspect={aspect}
+            onAspect={setAspect}
           />
         )}
         {tab === 'save' && (

@@ -6,6 +6,7 @@ import { setWorkerUrl } from 'maplibre-gl';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App';
+import { registerAspectProtocol } from './lib/aspect';
 import { registerBasemapProtocol } from './lib/basemap';
 import { registerPmtilesProtocol } from './lib/vegsource';
 import './app.css';
@@ -13,6 +14,7 @@ import './app.css';
 // Worker URL and protocols are global in MapLibre and must be set before the first map loads.
 setWorkerUrl(maplibreWorkerUrl);
 registerBasemapProtocol();
+registerAspectProtocol();
 registerPmtilesProtocol();
 registerSW({ immediate: true });
 

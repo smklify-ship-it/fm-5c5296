@@ -48,6 +48,35 @@ export function addElevationLayer(map: MlMap): void {
   );
 }
 
+const ASPECT_SRC = 'gsi-aspect';
+const ASPECT_LAYER = 'aspect-mask';
+// Below z10 slopes are too small on screen to matter, and computing them would be wasted work.
+const ASPECT_MIN_ZOOM = 10;
+
+/** Slope-aspect mask (raster from aspect.ts), drawn just above the elevation mask. */
+export function addAspectLayer(map: MlMap, tilesUrl: string): void {
+  if (map.getLayer(ASPECT_LAYER)) return;
+  map.addSource(ASPECT_SRC, {
+    type: 'raster',
+    tiles: [tilesUrl],
+    tileSize: 256,
+    minzoom: ASPECT_MIN_ZOOM,
+    maxzoom: DEM_SOURCE.maxzoom,
+  });
+  map.addLayer(
+    { id: ASPECT_LAYER, type: 'raster', source: ASPECT_SRC, layout: { visibility: 'none' } },
+    map.getStyle().layers.find((l) => l.type === 'symbol')?.id,
+  );
+}
+
+/** New options come with a new tile URL, which makes MapLibre re-render the mask tiles. */
+export function applyAspect(map: MlMap, tilesUrl: string, enabled: boolean): void {
+  const src = map.getSource(ASPECT_SRC) as { setTiles?: (t: string[]) => void } | undefined;
+  if (!src || !map.getLayer(ASPECT_LAYER)) return;
+  map.setLayoutProperty(ASPECT_LAYER, 'visibility', enabled ? 'visible' : 'none');
+  if (enabled) src.setTiles?.([tilesUrl]);
+}
+
 export function applyElevationBand(map: MlMap, elev: ElevationRange): void {
   if (!map.getLayer(ELEV_LAYER)) return;
   const color = elevationBandColor(elev);

@@ -148,7 +148,7 @@ veg-map/
 | 〃 | `memos` / `areas` | 発見地点メモ／保存した範囲の記録 |
 | Cache API | `gsi-glyphs` | 地名フォント（SWのCacheFirst＋範囲保存時に先読み ~10MB） |
 | Cache API | `pref-index` | prefs.json（SWのNetworkFirst） |
-| localStorage | `veg-map:` ＋ `selected` `groups` `groupTombstones` `elev` `kokuyu` `seasonOnly` `focus` `sheetSize` `view` `hiddenPrefs` `backupParts` `showOthers` | 画面設定。**端末ごと**（グループは同期実装後に共有） |
+| localStorage | `veg-map:` ＋ `selected` `groups` `groupTombstones` `elev` `kokuyu` `seasonOnly` `focus` `sheetSize` `view` `hiddenPrefs` `backupParts` `showOthers` `aspect` | 画面設定。**端末ごと**（グループは同期実装後に共有） |
 
 ### 5.4 選択とグループのモデル（`web/src/lib/groups.ts`）
 - `selected`: **(群落コード, グループ) ごとに1件**。`group` 未設定＝個別選択（群落ごとに最大1件）。同じ群落を複数グループ＋個別に同時に入れられる。
@@ -188,6 +188,12 @@ veg-map/
 
 ### 6.3 標高マスク／強調
 `raster-dem`（地理院dem_png, `encoding: custom`, redFactor 655.36 / greenFactor 2.56 / blueFactor 0.01）＋ `color-relief`。帯の外（マスク）または内（強調）を塗る。欠測（2^23→約83,886m）・海は「帯の外」扱い＝マスクでは灰色。🎯注目グループがあればその帯、なければ全体設定の帯。
+
+### 6.3b 斜面の向きマスク（`web/src/lib/aspect.ts`、10-06）
+- 8方位から表示する向きを選び、それ以外の斜面を標高マスクと同じ灰色で覆う。地理院DEM（範囲保存済みの標高タイル）から端末内で計算する独自プロトコル `gsiaspect://z/x/y?v=N` のラスタ（z10–13、それ未満は出さない）。
+- 標高マスクが「マスク」モードのときは**帯の中の画素だけ**を塗る＝「どちらか外れたら灰色」で二重に濃くならない。🎯注目の帯にも従う。
+- DEM10B は等高線由来で段差があり、1画素差分だと縞模様になった → 3×3平均でならし、±2画素（約60m）の差分で向きを出す。傾斜5°未満（平地）は隠さない。
+- 選択変更・帯変更から300ms後にタイルURLの `v` を変えて再描画。
 
 ### 6.4 背景とオフライン
 - 背景タイルは独自プロトコル `gsibv://z/x/y`: IndexedDBにあればそれ、無ければ地理院PMTilesから取得。標高は `gsidem://`。

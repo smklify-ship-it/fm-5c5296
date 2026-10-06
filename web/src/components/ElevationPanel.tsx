@@ -1,4 +1,8 @@
-import type { ElevationMode, ElevationRange } from '../lib/types';
+import { DIRECTIONS } from '../lib/aspect';
+import type { AspectSetting, ElevationMode, ElevationRange } from '../lib/types';
+
+// Compass layout (3×3, centre empty) → index into DIRECTIONS.
+const COMPASS: (number | null)[] = [7, 0, 1, 6, null, 2, 5, 4, 3];
 
 const MIN_M = 0;
 const MAX_M = 3200;
@@ -17,9 +21,22 @@ interface Props {
   // A focused mushroom group overrides the band used to shade the terrain.
   focus: { name: string; band: [number, number] } | null;
   onClearFocus: () => void;
+  aspect: AspectSetting;
+  onAspect: (a: AspectSetting) => void;
 }
 
-export function ElevationPanel({ elev, onChange, showKokuyu, onShowKokuyu, focus, onClearFocus }: Props) {
+export function ElevationPanel({
+  elev,
+  onChange,
+  showKokuyu,
+  onShowKokuyu,
+  focus,
+  onClearFocus,
+  aspect,
+  onAspect,
+}: Props) {
+  const toggleDir = (i: number) =>
+    onAspect({ ...aspect, allowed: aspect.allowed.map((v, j) => (j === i ? !v : v)) });
   const setMin = (v: number) => onChange({ ...elev, min: Math.min(v, elev.max) });
   const setMax = (v: number) => onChange({ ...elev, max: Math.max(v, elev.min) });
   const mode = elev.mode ?? 'mask';
@@ -88,6 +105,38 @@ export function ElevationPanel({ elev, onChange, showKokuyu, onShowKokuyu, focus
           海や標高データが無い所はマスクでは灰色になります。
         </p>
       </div>
+      <hr />
+      <label className="row">
+        <input
+          type="checkbox"
+          checked={aspect.enabled}
+          onChange={(e) => onAspect({ ...aspect, enabled: e.target.checked })}
+        />
+        斜面の向きで絞り込む
+      </label>
+      <div className={`compass ${aspect.enabled ? '' : 'disabled'}`}>
+        {COMPASS.map((i, k) =>
+          i === null ? (
+            <span key={k} className="compass-centre">
+              ⊕
+            </span>
+          ) : (
+            <button
+              key={k}
+              className={`dir ${aspect.allowed[i] ? 'on' : ''}`}
+              aria-pressed={aspect.allowed[i]}
+              disabled={!aspect.enabled}
+              onClick={() => toggleDir(i)}
+            >
+              {DIRECTIONS[i]}
+            </button>
+          ),
+        )}
+      </div>
+      <p className="hint">
+        選んだ向きの斜面だけを見せ、それ以外を灰色で隠します（標高の帯と組み合わせ可）。平らな所は隠しません。
+        地図を拡大（ズーム10以上）すると表示されます。
+      </p>
       <hr />
       <label className="row">
         <input type="checkbox" checked={showKokuyu} onChange={(e) => onShowKokuyu(e.target.checked)} />

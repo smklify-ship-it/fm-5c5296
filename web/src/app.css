@@ -614,3 +614,31 @@ button.focus.on {
   width: 18px;
   height: 18px;
 }
+
+/* Slope-aspect picker laid out like a compass. */
+.compass {
+  display: grid;
+  grid-template-columns: repeat(3, 64px);
+  gap: 4px;
+  justify-content: center;
+  margin: 4px 0;
+}
+
+.compass .dir {
+  min-height: 40px;
+  font-size: 14px;
+  padding: 2px;
+}
+
+.compass .dir.on {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+}
+
+.compass-centre {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
