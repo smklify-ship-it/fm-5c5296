@@ -35,10 +35,19 @@ export interface BackupSettings {
   seasonOnly?: boolean;
 }
 
+/** Which parts a backup file holds / an import applies. Groups include individual selections. */
+export interface BackupParts {
+  memos: boolean;
+  groups: boolean;
+}
+
+export const ALL_PARTS: BackupParts = { memos: true, groups: true };
+
 export interface Backup {
   app: typeof BACKUP_APP;
   format: number;
   exportedAt: string;
+  contents: BackupParts;
   memos: Memo[];
   groups: SharedGroup[];
   tombstones: GroupTombstone[];
@@ -67,17 +76,27 @@ export function buildBackup(
   state: SelectionState,
   settings: BackupSettings,
   now: Date,
+  parts: BackupParts = ALL_PARTS,
 ): Backup {
   return {
     app: BACKUP_APP,
     format: BACKUP_FORMAT,
     exportedAt: now.toISOString(),
-    memos,
-    groups: toSharedGroups(state),
-    tombstones: state.tombstones ?? [],
-    individuals: state.selected.filter((s) => !s.group).map((s) => ({ code: s.code, color: s.color })),
+    contents: parts,
+    memos: parts.memos ? memos : [],
+    groups: parts.groups ? toSharedGroups(state) : [],
+    tombstones: parts.groups ? (state.tombstones ?? []) : [],
+    individuals: parts.groups
+      ? state.selected.filter((s) => !s.group).map((s) => ({ code: s.code, color: s.color }))
+      : [],
     settings,
   };
+}
+
+/** e.g. "veg-map-backup-メモ-2026-10-06.json"; no part label when both are included. */
+export function backupFileName(parts: BackupParts, now: Date): string {
+  const label = parts.memos && parts.groups ? '' : parts.memos ? '-メモ' : '-グループ';
+  return `veg-map-backup${label}-${now.toISOString().slice(0, 10)}.json`;
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -101,10 +120,16 @@ export function parseBackup(text: string): Backup {
   const groups = Array.isArray(b.groups)
     ? b.groups.filter((g) => g && typeof g.id === 'string' && Array.isArray(g.members))
     : [];
+  // Files written before part selection existed always held everything.
+  const contents: BackupParts = {
+    memos: b.contents?.memos ?? true,
+    groups: b.contents?.groups ?? true,
+  };
   return {
     app: BACKUP_APP,
     format: b.format,
     exportedAt: String(b.exportedAt ?? ''),
+    contents,
     memos,
     groups,
     tombstones: Array.isArray(b.tombstones) ? b.tombstones.filter((t) => t && typeof t.id === 'string') : [],

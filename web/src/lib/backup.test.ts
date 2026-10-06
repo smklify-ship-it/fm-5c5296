@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildBackup, mergeMemos, mergeSelection, parseBackup, toSharedGroups } from './backup';
+import { backupFileName, buildBackup, mergeMemos, mergeSelection, parseBackup, toSharedGroups } from './backup';
 import { createGroup, deleteGroup, EMPTY_STATE, stampChanged, updateGroup, type SelectionState } from './groups';
 import type { Memo } from './types';
 
@@ -114,5 +114,38 @@ describe('backup file', () => {
   it('skips malformed memos instead of failing the whole import', () => {
     const text = JSON.stringify({ app: 'veg-map', format: 1, memos: [{ id: 'x' }, memo('ok', 1)] });
     expect(parseBackup(text).memos.map((m) => m.id)).toEqual(['ok']);
+  });
+});
+
+describe('backup parts', () => {
+  const onlyMemos = { memos: true, groups: false };
+
+  it('a memos-only backup holds no groups', () => {
+    const b = buildBackup([memo('a', 1)], base(), {}, new Date(0), onlyMemos);
+    expect([b.memos.length, b.groups.length, b.individuals.length]).toEqual([1, 0, 0]);
+  });
+
+  it('a groups-only backup holds no memos', () => {
+    const b = buildBackup([memo('a', 1)], base(), {}, new Date(0), { memos: false, groups: true });
+    expect([b.memos.length, b.groups.length]).toEqual([0, 1]);
+  });
+
+  it('records which parts the file holds', () => {
+    const text = JSON.stringify(buildBackup([], base(), {}, new Date(0), onlyMemos));
+    expect(parseBackup(text).contents).toEqual(onlyMemos);
+  });
+
+  it('treats an older file without the record as holding everything', () => {
+    expect(parseBackup('{"app":"veg-map","format":1}').contents).toEqual({ memos: true, groups: true });
+  });
+
+  it('labels the file name with the part when only one is included', () => {
+    expect(backupFileName(onlyMemos, new Date('2026-10-06T00:00:00Z'))).toBe('veg-map-backup-メモ-2026-10-06.json');
+  });
+
+  it('has no part label when both are included', () => {
+    expect(backupFileName({ memos: true, groups: true }, new Date('2026-10-06T00:00:00Z'))).toBe(
+      'veg-map-backup-2026-10-06.json',
+    );
   });
 });

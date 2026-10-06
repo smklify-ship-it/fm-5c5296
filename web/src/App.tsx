@@ -491,21 +491,32 @@ export default function App() {
     setMemos((cur) => cur.map((m) => (m.id === id ? tomb : m)));
   };
 
-  const exportBackup = async (): Promise<string> => {
-    const backup = B.buildBackup(memos, sel, { elev, kokuyu: showKokuyu, seasonOnly }, new Date());
-    const name = `veg-map-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  const exportBackup = async (parts: B.BackupParts): Promise<string> => {
+    const now = new Date();
+    const backup = B.buildBackup(memos, sel, { elev, kokuyu: showKokuyu, seasonOnly }, now, parts);
+    const name = B.backupFileName(parts, now);
     const result = await exportFile(name, JSON.stringify(backup, null, 1), 'application/json');
     return result === 'cancelled' ? '' : `${name} を書き出しました`;
   };
-  // Import merges (newer copy wins) instead of replacing, so backups from several devices combine.
-  const importBackup = async (file: File): Promise<string> => {
+  // Import merges (newer copy wins) instead of replacing, so backups from several devices
+  // combine. Only the checked parts are applied, even if the file holds more.
+  const importBackup = async (file: File, parts: B.BackupParts): Promise<string> => {
     const backup = B.parseBackup(await file.text());
-    const merged = B.mergeMemos(memos, backup.memos);
-    for (const m of merged) await dbPut(STORES.memos, m.id, m);
-    setMemos(merged);
-    setSel((cur) => B.mergeSelection(cur, backup.groups, backup.tombstones, backup.individuals));
-    const live = backup.memos.filter((m) => !m.deleted).length;
-    return `読み込みました（メモ ${live} 件・グループ ${backup.groups.length} 件を統合）`;
+    const useMemos = parts.memos && backup.contents.memos;
+    const useGroups = parts.groups && backup.contents.groups;
+    if (!useMemos && !useGroups) throw new Error('選んだ対象がこのファイルに入っていません');
+    const done: string[] = [];
+    if (useMemos) {
+      const merged = B.mergeMemos(memos, backup.memos);
+      await dbPutMany(STORES.memos, merged.map((m) => [m.id, m]));
+      setMemos(merged);
+      done.push(`メモ ${backup.memos.filter((m) => !m.deleted).length} 件`);
+    }
+    if (useGroups) {
+      setSel((cur) => B.mergeSelection(cur, backup.groups, backup.tombstones, backup.individuals));
+      done.push(`グループ ${backup.groups.length} 件`);
+    }
+    return `読み込みました（${done.join('・')}を統合）`;
   };
   const mapCenter = () => {
     const c = mapRef.current?.getCenter();

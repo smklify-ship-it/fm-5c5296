@@ -6,7 +6,9 @@ import {
   MAX_TILES_PER_AREA,
   type DownloadProgress,
 } from '../lib/basemap';
+import { ALL_PARTS, type BackupParts } from '../lib/backup';
 import { dbAll, dbClear, dbPut, STORES } from '../lib/db';
+import { loadSetting, saveSetting } from '../lib/settings';
 import type { BBox, PrefEntry, SavedArea } from '../lib/types';
 
 const ZOOM_CHOICES = [14, 15, 16];
@@ -33,8 +35,8 @@ interface Props {
   onRemovePref: (p: PrefEntry) => void;
   viewBbox: BBox | null;
   // Return a status line for the panel; throw with a user-facing message on failure.
-  onExportBackup: () => Promise<string>;
-  onImportBackup: (file: File) => Promise<string>;
+  onExportBackup: (parts: BackupParts) => Promise<string>;
+  onImportBackup: (file: File, parts: BackupParts) => Promise<string>;
   syncInfo: SyncInfo;
   onOwnerSignIn: () => Promise<string>;
   showOthers: boolean;
@@ -69,6 +71,13 @@ export function SavePanel({
     }
   };
   const [backupStatus, setBackupStatus] = useState('');
+  const [parts, setParts] = useState<BackupParts>(() => loadSetting('backupParts', ALL_PARTS));
+  const setPart = (key: keyof BackupParts, on: boolean) => {
+    const next = { ...parts, [key]: on };
+    setParts(next);
+    saveSetting('backupParts', next);
+  };
+  const noPart = !parts.memos && !parts.groups;
   const backupFileRef = useRef<HTMLInputElement>(null);
   const runBackup = async (task: () => Promise<string>) => {
     try {
@@ -218,12 +227,23 @@ export function SavePanel({
       <p className="hint">
         発見地点メモ、グループ（群落・色・標高帯・時期）、個別に選んだ群落を1つのファイルに書き出します。
         読み込みは置き換えではなく統合です（同じものは新しい方を残す）。他の端末のバックアップも読み込めます。
+        下のチェックは書き出し・読み込みの両方に効きます。
       </p>
+      <label className="row">
+        <input type="checkbox" checked={parts.memos} onChange={(e) => setPart('memos', e.target.checked)} />
+        発見地点メモ
+      </label>
+      <label className="row">
+        <input type="checkbox" checked={parts.groups} onChange={(e) => setPart('groups', e.target.checked)} />
+        グループ（個別に選んだ群落も含む）
+      </label>
       <div className="buttons">
-        <button className="primary" onClick={() => void runBackup(onExportBackup)}>
+        <button className="primary" disabled={noPart} onClick={() => void runBackup(() => onExportBackup(parts))}>
           書き出す
         </button>
-        <button onClick={() => backupFileRef.current?.click()}>読み込む</button>
+        <button disabled={noPart} onClick={() => backupFileRef.current?.click()}>
+          読み込む
+        </button>
         <input
           ref={backupFileRef}
           type="file"
@@ -231,7 +251,7 @@ export function SavePanel({
           hidden
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) void runBackup(() => onImportBackup(f));
+            if (f) void runBackup(() => onImportBackup(f, parts));
             e.target.value = '';
           }}
         />

@@ -159,7 +159,8 @@ veg-map/
 - メモも `updatedAt` を持ち、削除は `deleted: true` の印で残す（画面からは隠す）。
 
 ### 5.5 バックアップと統合規則（`web/src/lib/backup.ts`）
-- ファイル: `{app:"veg-map", format:1, exportedAt, memos[], groups[{…, members:[コード]}], tombstones[], individuals[], settings}`
+- ファイル: `{app:"veg-map", format:1, exportedAt, contents:{memos,groups}, memos[], groups[{…, members:[コード]}], tombstones[], individuals[], settings}`
+- 対象選択（10-06）: 保存タブのチェック「発見地点メモ」「グループ（個別選択を含む）」が**書き出し・読み込みの両方**に効く（端末ごとに記憶）。`contents` の無い旧ファイルは両方入りとみなす。ファイル名は片方だけなら `veg-map-backup-メモ-日付.json` 等
 - 統合: 項目ID ごとに `updatedAt` の新しい方を残す。削除の印のほうが新しければ削除が勝つ。グループのメンバーは勝った側で置き換え、各端末の表示/非表示は保持。**同期もこの規則を使う**。
 
 ### 5.6 集約（自動同期）（`web/src/lib/sync.ts`, `firebase.ts`, ルート `firestore.rules`）
