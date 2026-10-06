@@ -130,6 +130,12 @@ export default function App() {
   // Owner only: memos registered on other devices (a separate layer, never merged).
   const [others, setOthers] = useState<OtherMemo[]>([]);
   const [showOthers, setShowOthers] = useState<boolean>(() => loadSetting('showOthers', true));
+  // Before the owner signs in, the owner's own device writes anonymously; those copies come
+  // back as "other devices". Anything that is also one of the owner's own memos is dropped.
+  const otherMemos = useMemo(() => {
+    const mine = new Set(memos.map((m) => m.id));
+    return others.filter((o) => !mine.has(o.id));
+  }, [others, memos]);
   // Deleted memos are kept as tombstones (see deleteMemo); only live ones are shown.
   const liveMemos = useMemo(() => memos.filter((m) => !m.deleted), [memos]);
   const [tab, setTab] = useState<Tab | null>(null);
@@ -438,14 +444,14 @@ export default function App() {
   useEffect(() => {
     const map = mapRef.current;
     if (!mapReady || !map || !showOthers) return;
-    const markers = others.map((m) => {
+    const markers = otherMemos.map((m) => {
       const popup = new Popup({ offset: 24 }).setText(
         `[${m.deviceLabel} ${m.device.slice(0, 4)}] ${new Date(m.time).toLocaleString('ja-JP')}\n${m.text}`,
       );
       return new Marker({ color: OTHERS_COLOR }).setLngLat([m.lon, m.lat]).setPopup(popup).addTo(map);
     });
     return () => markers.forEach((mk) => mk.remove());
-  }, [mapReady, others, showOthers]);
+  }, [mapReady, otherMemos, showOthers]);
 
   const onStorePref = async (p: PrefEntry) => {
     setBusyPref({ key: p.key, received: 0, total: p.vegBytes + p.kokuyuBytes });
@@ -625,7 +631,7 @@ export default function App() {
             onImportBackup={importBackup}
             syncInfo={syncInfo}
             onOwnerSignIn={onOwnerSignIn}
-            othersCount={others.length}
+            othersCount={otherMemos.length}
             showOthers={showOthers}
             onShowOthers={setShowOthers}
           />
