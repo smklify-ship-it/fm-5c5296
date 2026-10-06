@@ -285,8 +285,8 @@ export function SavePanel({
       <p className="hint">{usage}</p>
       {syncInfo.anonymous === true && (
         <details className="owner">
-          <summary>オーナー用</summary>
-          <button onClick={() => void signInOwner()}>オーナーとしてGoogleでログイン</button>
+          <summary>プログラム修正</summary>
+          <button onClick={() => void signInOwner()}>Googleでログイン</button>
         </details>
       )}
       {ownerError && <p className="warn">{ownerError}</p>}
