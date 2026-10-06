@@ -10,7 +10,7 @@ service cloud.firestore {
       return request.auth != null;
     }
     function isOwner() {
-      return signedIn() && request.auth.uid == 'OWNER_UID_NOT_SET';
+      return signedIn() && request.auth.uid == 'Oqnz2I7pJwdZFcTcxbDVzVFCECl2';
     }
     function self(uid) {
       return signedIn() && request.auth.uid == uid;
